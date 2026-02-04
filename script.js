@@ -1,13 +1,14 @@
 // --- CONFIGURAÇÃO DA API (GOOGLE SHEETS) ---
+// IMPORTANTE: Verifique se esta URL é a da sua implantação mais recente
 const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-sYiyql5P9iw5ujdbQTnu7w0hMNCqTFwxPocIPh2bQVg/exec";
 
 // --- DADOS GLOBAIS ---
 let appointments = {}; 
 let validTokensMap = {}; 
 
-// --- CACHE DE PERFORMANCE (NOVO) ---
+// --- CACHE DE PERFORMANCE ---
 const DASH_CACHE = {}; 
-// Estrutura: { "2026-02": { total: 100, occupied: 50, stats: { ... } } }
+// Estrutura: { "2026-02": { total: 100, occupied: 50, loaded: true, counts: {...} } }
 
 // CONFIGURAÇÃO DA DATA INICIAL (HOJE)
 const todayDate = new Date();
@@ -69,21 +70,74 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-// --- LÓGICA DE PRÉ-PROCESSAMENTO ---
+// --- FUNÇÃO DE ANIMAÇÃO (NUMBERS GO UP) ---
+function animateMetric(elementId, targetValue, isPercentage = false) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    let startValue = 0;
+    const currentText = element.innerText;
+    
+    if (currentText !== '--' && currentText !== '--%') {
+        startValue = parseFloat(currentText.replace('%', '').replace('(', '').replace(')', ''));
+        if (isNaN(startValue)) startValue = 0;
+    }
+
+    if (startValue === targetValue) {
+        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+        return;
+    }
+
+    const duration = 1000;
+    const startTime = performance.now();
+
+    function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 4); 
+
+        const current = startValue + (targetValue - startValue) * ease;
+
+        if (isPercentage) {
+            element.innerText = current.toFixed(1) + '%';
+        } else {
+            element.innerText = Math.floor(current);
+        }
+
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        } else {
+            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+// --- FUNÇÃO AUXILIAR PARA SUB-ESTATÍSTICAS ---
+function animateSubMetric(elementId, val, groupTotal) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const pct = groupTotal > 0 ? (val / groupTotal) * 100 : 0;
+    const finalText = `${pct.toFixed(1)}% (${val})`;
+    
+    element.innerText = finalText;
+}
+
+// --- LÓGICA DE PRÉ-PROCESSAMENTO DO CACHE ---
 function recalculateMonthCache(monthKey) {
     if (!monthKey) return;
 
     let totalSlots = 0;
     let occupiedSlots = 0;
 
-    // Estrutura de contagem
     let counts = {
         Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
         Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
         Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
     };
 
-    // Varredura única no mês (O(N) local)
     Object.keys(appointments).forEach(dateKey => {
         if (dateKey.startsWith(monthKey)) {
             const daySlots = appointments[dateKey];
@@ -114,17 +168,16 @@ function recalculateMonthCache(monthKey) {
         }
     });
 
-    // Salva no Cache Global
-    DASH_CACHE[monthKey] = {
-        total: totalSlots,
-        occupied: occupiedSlots,
-        counts: counts
-    };
+    if(!DASH_CACHE[monthKey]) DASH_CACHE[monthKey] = {};
+    
+    DASH_CACHE[monthKey].total = totalSlots;
+    DASH_CACHE[monthKey].occupied = occupiedSlots;
+    DASH_CACHE[monthKey].counts = counts;
 }
 
 // --- COMUNICAÇÃO COM O BACKEND (GOOGLE SHEETS) ---
 
-// 1. CARREGAR TOKENS VÁLIDOS E PERMISSÕES
+// 1. CARREGAR TOKENS VÁLIDOS
 async function fetchValidTokens() {
     try {
         const response = await fetch(`${API_URL}?type=tokens`, { redirect: "follow" });
@@ -139,134 +192,142 @@ async function fetchValidTokens() {
     }
 }
 
-// 2. BUSCAR AGENDAMENTOS (GET)
-// isBackground = true impede que a tela mostre spinners bloqueantes
-async function fetchRemoteData(dateKey, isBackground = false) {
-    if (API_URL.includes("SUA_URL")) {
-        alert("Configure a API_URL no script.js!");
+// 2. PROCESSAMENTO DE DADOS (RAW -> APP)
+function processRawData(rows, forceDateKey = null) {
+    if ((!rows || rows.length === 0) && forceDateKey) {
+        if (!appointments[forceDateKey]) appointments[forceDateKey] = [];
         return;
     }
 
+    rows.forEach(row => {
+        const key = row.date; 
+        if (!key) return;
+
+        if (!appointments[key]) appointments[key] = [];
+        
+        const exists = appointments[key].find(s => String(s.id) === String(row.id));
+        
+        if (!exists) {
+            appointments[key].push({
+                id: row.id,
+                date: row.date,
+                time: row.time,
+                room: row.room,
+                location: row.location,
+                doctor: row.doctor,
+                specialty: row.specialty,
+                status: row.status,
+                patient: row.patient,
+                record: row.record,
+                contract: row.contract,
+                regulated: (row.regulated === true || row.regulated === "TRUE" || row.regulated === "YES"),
+                procedure: row.procedure,
+                detail: row.detail,
+                eye: row.eye,
+                createdBy: row.created_by
+            });
+        } else {
+            const idx = appointments[key].findIndex(s => String(s.id) === String(row.id));
+            if(idx !== -1) {
+                appointments[key][idx] = {
+                    ...appointments[key][idx],
+                    status: row.status,
+                    patient: row.patient,
+                    record: row.record,
+                    contract: row.contract,
+                    regulated: (row.regulated === true || row.regulated === "TRUE" || row.regulated === "YES"),
+                    procedure: row.procedure,
+                    detail: row.detail,
+                    eye: row.eye,
+                    createdBy: row.created_by
+                };
+            }
+        }
+    });
+
+    if (forceDateKey) {
+        recalculateMonthCache(forceDateKey.substring(0, 7));
+    } else if (rows.length > 0) {
+        recalculateMonthCache(rows[0].date.substring(0, 7));
+    }
+}
+
+// 3. BUSCAR DADOS DE UM DIA ESPECÍFICO (FALLBACK)
+async function fetchRemoteData(dateKey, isBackground = false) {
+    if (API_URL.includes("SUA_URL")) { alert("Configure a API_URL!"); return; }
     if (!isBackground) setLoading(true);
 
-    const container = document.getElementById('slots-list-container');
-    // Só mexe na UI da lista se for o dia que o usuário está olhando
-    if (container && !isBackground) {
-        container.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:#94a3b8; text-align:center">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite; margin-bottom:12px">
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
-                </svg>
-                <div style="font-size:0.9rem; font-weight:500">Buscando agenda...</div>
-            </div>
-            <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
-        `;
-    }
-
     try {
-        const response = await fetch(`${API_URL}?action=get&date=${dateKey}`, { redirect: "follow" });
+        const response = await fetch(`${API_URL}?date=${dateKey}`, { redirect: "follow" });
         const data = await response.json();
 
         if (data.error) throw new Error(data.error);
 
-        // Atualiza Dados Brutos
-        appointments[dateKey] = data.map(row => ({
-            id: row.id,
-            date: dateKey,
-            time: row.time,
-            room: row.room,
-            location: row.location,
-            doctor: row.doctor,
-            specialty: row.specialty,
-            status: row.status,
-            patient: row.patient,
-            record: row.record,
-            contract: row.contract,
-            regulated: (row.regulated === true || row.regulated === "TRUE" || row.regulated === "YES"),
-            procedure: row.procedure,
-            detail: row.detail,
-            eye: row.eye,
-            createdBy: row.created_by
-        }));
+        if(data.length === 0) appointments[dateKey] = [];
+        
+        processRawData(data, dateKey);
 
-        // --- ATUALIZAÇÃO DO CACHE MENSAL IMEDIATA ---
-        const currentMonth = dateKey.substring(0, 7);
-        recalculateMonthCache(currentMonth);
-        // ---------------------------------------------
-
-        // Se a visualização estiver ativa no mês corrente, atualiza a lista
-        if (dateKey.substring(0, 7) === selectedDateKey.substring(0, 7)) {
+        if (dateKey === selectedDateKey) {
             renderSlotsList();
             if (currentView === 'admin') renderAdminTable();
         }
-        
-        updateKPIs(); 
+        updateKPIs();
 
     } catch (error) {
         console.error(`Erro fetch (${dateKey}):`, error);
-        if (container && !isBackground) {
-            container.innerHTML = `
-                <div style="text-align:center; padding:40px; color:#ef4444;">
-                    <p>Erro ao carregar dados.</p>
-                    <button class="btn btn-ghost" onclick="fetchRemoteData('${dateKey}')">Tentar Novamente</button>
-                </div>
-            `;
-            showToast('Erro de conexão.', 'error');
-        }
+        if (!isBackground) showToast('Erro de conexão.', 'error');
     } finally {
         if (!isBackground) setLoading(false);
     }
 }
 
-// 3. SINCRONIZAR MÊS (OTIMIZADO COM LOTES)
+// 4. SINCRONIZAR MÊS INTEIRO (AGORA NÃO BLOQUEANTE)
 async function syncMonthData(baseDateKey) {
     if(!baseDateKey) return;
     
-    // Suporte para input tipo "YYYY-MM" ou "YYYY-MM-DD"
     const parts = baseDateKey.split('-');
-    const year = parts[0];
-    const month = parts[1];
+    const monthKey = `${parts[0]}-${parts[1]}`; 
     
-    const daysInMonth = new Date(year, month, 0).getDate();
-    
-    // Identifica quais dias faltam baixar
-    let missingDays = [];
-    for (let i = 1; i <= daysInMonth; i++) {
-        const dStr = String(i).padStart(2, '0');
-        const targetKey = `${year}-${month}-${dStr}`;
-        if (!appointments[targetKey]) missingDays.push(targetKey);
+    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
+        console.log("Mês já carregado (Cache).");
+        return; 
     }
 
-    // Se não falta nada, apenas recalcula para garantir e atualiza
-    if(missingDays.length === 0) {
-        recalculateMonthCache(`${year}-${month}`); 
-        updateKPIs();
-        return;
+    // Não mostra mais splash text bloqueante
+    setLoading(true);
+    console.log(`Buscando mês inteiro: ${monthKey}`);
+
+    try {
+        const response = await fetch(`${API_URL}?month=${monthKey}`, { redirect: "follow" });
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+
+        Object.keys(appointments).forEach(k => {
+            if(k.startsWith(monthKey)) delete appointments[k];
+        });
+
+        processRawData(data);
+        
+        if(!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
+        DASH_CACHE[monthKey].loaded = true;
+
+        // Atualiza a tela assim que os dados chegarem
+        if (selectedDateKey.startsWith(monthKey)) {
+            renderSlotsList();
+            if (currentView === 'admin') renderAdminTable();
+            updateKPIs();
+        }
+
+    } catch (e) {
+        console.error("Erro syncMonth:", e);
+        showToast("Erro ao sincronizar mês.", "error");
+    } finally {
+        setLoading(false);
     }
-
-    // Função para dividir em blocos (chunks)
-    const chunkArray = (arr, size) => {
-        return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-            arr.slice(i * size, i * size + size)
-        );
-    };
-
-    // Divide em lotes de 6 dias (Rápido e seguro para o Google)
-    const batches = chunkArray(missingDays, 6);
-
-    console.log(`Iniciando carga de ${missingDays.length} dias em ${batches.length} lotes.`);
-
-    // Processa cada lote em paralelo
-    for (const batch of batches) {
-        await Promise.all(batch.map(dayKey => fetchRemoteData(dayKey, true)));
-        // A cada lote que chega, o updateKPIs é chamado dentro do fetchRemoteData
-        // fazendo os números do dashboard subirem em tempo real.
-    }
-    
-    console.log("Mês carregado completamente.");
 }
 
-// 4. ENVIAR DADOS (POST)
+// 5. ENVIAR DADOS (POST)
 async function sendUpdateToSheet(payload) {
     try {
         const response = await fetch(API_URL, {
@@ -391,40 +452,33 @@ function executeSwitch(view) {
     }
 }
 
-// --- INICIALIZAÇÃO OTIMIZADA ---
-async function initData() {
+// --- INICIALIZAÇÃO OTIMIZADA (SEM TRAVAS) ---
+function initData() {
     fetchValidTokens();
     
-    // Binding do Seletor de Data Lateral
     const picker = document.getElementById('sidebar-date-picker');
     if (picker) picker.value = selectedDateKey; 
     
-    // Binding do Seletor de Mês do Dashboard
     const dashPicker = document.getElementById('dashboard-month-picker');
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
-        // O pulo do gato: Ao mudar o mês do dash, forçar a sincronia
         dashPicker.addEventListener('change', (e) => {
-            syncMonthData(e.target.value);
+            // Não bloqueia mais a tela, só avisa no toast/cursor
+            showToast('Sincronizando novo mês...', 'success');
+            syncMonthData(e.target.value); 
         });
     }
 
-    // 1. CARREGAMENTO PRIORITÁRIO: Dia Atual
-    // O await garante que o splash screen só saia DEPOIS que o dia de hoje estiver carregado
-    await fetchRemoteData(selectedDateKey, true); 
-
-    // 2. Renderiza a lista do dia (agora que temos dados)
-    renderSlotsList();
-
-    // 3. Remove Splash Screen (Usuário já pode ver a agenda)
+    // 1. Remove Splash Screen IMEDIATAMENTE
     const splash = document.getElementById('app-splash-screen');
-    if (splash) {
-        splash.style.opacity = '0';
-        setTimeout(() => splash.remove(), 500);
-    }
+    if (splash) splash.remove();
 
-    // 4. DISPARA O MÊS EM BACKGROUND
+    // 2. Dispara a carga em segundo plano (sem await)
     syncMonthData(selectedDateKey);
+
+    // 3. Renderiza o que tem (mesmo que vazio inicialmente)
+    renderSlotsList();
+    updateKPIs();
 }
 
 function updateSidebarDate() {
@@ -435,10 +489,17 @@ function updateSidebarDate() {
     document.getElementById('room-filter').value = 'ALL';
     document.getElementById('location-filter').value = 'ALL';
 
-    // Ao mudar data no sidebar, carregamos o dia em questão e garantimos sync do mês
-    fetchRemoteData(selectedDateKey, false).then(() => {
-        syncMonthData(selectedDateKey);
-    });
+    const monthKey = selectedDateKey.substring(0, 7);
+    
+    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
+        renderSlotsList();
+    } else {
+        setLoading(true);
+        syncMonthData(selectedDateKey).then(() => {
+            renderSlotsList();
+            setLoading(false);
+        });
+    }
 }
 
 function changeDate(delta) {
@@ -453,7 +514,7 @@ function changeDate(delta) {
     updateSidebarDate();
 }
 
-// --- UI LISTA DE VAGAS (VISUALIZAÇÃO MENSAL) ---
+// --- UI LISTA DE VAGAS ---
 
 function handleSlotClick(slot, key) {
     currentSlotId = slot.id;
@@ -466,8 +527,6 @@ function handleSlotClick(slot, key) {
 }
 
 function updateFilterOptions() {
-    // MODIFICADO: Filtros agora olham APENAS para o DIA selecionado
-    // Em vez de 'getSlotsFromMonth', usamos direto 'appointments[selectedDateKey]'
     const slots = appointments[selectedDateKey] || [];
 
     const rooms = [...new Set(slots.map(s => s.room))].sort();
@@ -500,10 +559,8 @@ function renderSlotsList() {
     const container = document.getElementById('slots-list-container');
     container.innerHTML = '';
 
-    // MODIFICADO: PEGA APENAS O DIA SELECIONADO
     let slots = appointments[selectedDateKey] || [];
 
-    // 2. APLICA FILTROS
     const locFilter = document.getElementById('location-filter').value;
     const roomFilter = document.getElementById('room-filter').value;
     const shiftFilter = document.getElementById('shift-filter').value;
@@ -519,18 +576,9 @@ function renderSlotsList() {
         });
     }
 
-    // 3. ORDENAÇÃO (DATA -> STATUS -> HORA)
     slots.sort((a, b) => {
-        // 1. Garante data (caso raro de mistura)
         if (a.date !== b.date) return a.date.localeCompare(b.date);
-
-        // 2. Prioriza LIVRE no topo, OCUPADO no fim
-        if (a.status !== b.status) {
-            // Se A é LIVRE, ele vem antes (-1). Se não, vai depois (1).
-            return a.status === 'LIVRE' ? -1 : 1;
-        }
-
-        // 3. Se o status for igual, ordena por horário
+        if (a.status !== b.status) return a.status === 'LIVRE' ? -1 : 1;
         return a.time.localeCompare(b.time);
     });
 
@@ -554,7 +602,6 @@ function renderSlotsList() {
         let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
         let doctorName = slot.doctor ? `<b>${slot.doctor.split(' ')[0]} ${slot.doctor.split(' ')[1] || ''}</b>` : 'Sem Médico';
 
-        // FORMATAÇÃO DA DATA "AO LADO"
         const dayPart = slot.date.split('-')[2];
         const monthPart = slot.date.split('-')[1];
         const formattedDate = `${dayPart}/${monthPart}`;
@@ -654,29 +701,35 @@ function bulkCreateSlots() {
         closeMessageModal();
         if (success) {
             showToast(`${qty} vagas criadas!`, 'success');
+            
+            processRawData(slotsToSend.map(s => ({...s, status: 'LIVRE', created_by: currentUserToken})));
+            
             selectedDateKey = dateVal;
             document.getElementById('sidebar-date-picker').value = selectedDateKey;
-            fetchRemoteData(selectedDateKey);
+            renderSlotsList();
+            updateKPIs();
             executeSwitch('booking');
         }
     });
 }
 
-// --- ADMIN TABLE (MEMÓRIA DE SELEÇÃO) ---
+// --- ADMIN TABLE ---
 
 function renderAdminTable() {
     const tbody = document.getElementById('admin-table-body');
     if (!tbody) return;
 
-    // 1. SALVA ESTADO: Antes de limpar, guarda quem estava marcado
     const currentlyChecked = Array.from(document.querySelectorAll('.slot-checkbox:checked'))
                                   .map(cb => String(cb.value));
 
     tbody.innerHTML = '';
 
-    // Pega o MÊS inteiro também no Admin
     const targetMonth = selectedDateKey.substring(0, 7);
-    const slots = getSlotsFromMonth(targetMonth);
+    const slots = [];
+    
+    Object.keys(appointments).forEach(k => {
+        if(k.startsWith(targetMonth)) slots.push(...appointments[k]);
+    });
 
     slots.sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -691,8 +744,6 @@ function renderAdminTable() {
             : `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">LIVRE</span>`;
         
         const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
-
-        // 2. REAPLICA ESTADO: Se estava marcado, marca de novo
         const isChecked = currentlyChecked.includes(String(slot.id)) ? 'checked' : '';
 
         tr.innerHTML = `
@@ -716,7 +767,6 @@ function renderAdminTable() {
 
     updateDeleteButton();
     
-    // Opcional: Verifica se "Marcar Todos" deve estar ativo
     const masterCheck = document.getElementById('check-all-slots');
     if(masterCheck) {
         const total = document.querySelectorAll('.slot-checkbox').length;
@@ -761,7 +811,6 @@ async function deleteSelectedSlots() {
     });
 }
 
-// --- PROCESSAMENTO EM LOTE BLINDADO ---
 async function processBatchDelete(ids) {
     showMessageModal('Processando', `Iniciando exclusão...`, 'loading');
     const msgBody = document.getElementById('msg-body');
@@ -785,7 +834,6 @@ async function processBatchDelete(ids) {
             if (result.status === 'success') {
                 successCount++;
                 
-                // REMOVE DO CACHE GLOBAL
                 Object.keys(appointments).forEach(key => {
                     appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
                 });
@@ -793,9 +841,7 @@ async function processBatchDelete(ids) {
         } catch (e) { console.error("Erro delete:", e); }
     }
 
-    // --- RECALCULA CACHE MENSAL APÓS DELETE ---
     recalculateMonthCache(selectedDateKey.substring(0, 7));
-    // ------------------------------------------
 
     closeMessageModal();
     renderSlotsList(); 
@@ -805,15 +851,15 @@ async function processBatchDelete(ids) {
     showToast(`${successCount} vagas excluídas.`, 'success');
 }
 
-// --- EXCLUSÃO INDIVIDUAL BLINDADA ---
 function deleteSlot(id) {
-    // Busca no mês todo
     const monthKey = selectedDateKey.substring(0,7);
-    const slots = getSlotsFromMonth(monthKey);
-    const slot = slots.find(s => String(s.id) === String(id));
+    let slot = null;
+    
+    Object.keys(appointments).forEach(k => {
+        if(!slot && k.startsWith(monthKey)) slot = appointments[k].find(s => String(s.id) === String(id));
+    });
 
     let msg = 'Excluir vaga permanentemente?';
-    
     if (slot && slot.status === 'OCUPADO') {
         msg = `<b>ATENÇÃO:</b> Vaga com paciente <b>${slot.patient}</b>. Excluir removerá ambos.`;
     }
@@ -824,20 +870,11 @@ function deleteSlot(id) {
         
         const success = await sendUpdateToSheet({ action: "delete", id: id });
         if (success) {
-            // Remove do cache GLOBALMENTE
              Object.keys(appointments).forEach(key => {
                 appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
             });
 
-            // Remove do DOM imediatamente
-            const item = document.querySelector(`.slot-checkbox[value="${id}"]`)?.closest('tr');
-            if(item) item.remove();
-
-            // --- RECALCULA CACHE ---
             recalculateMonthCache(selectedDateKey.substring(0, 7));
-            // ---------------------
-
-            // Atualiza tudo
             renderSlotsList();
             renderAdminTable();
             updateKPIs();
@@ -871,7 +908,6 @@ function openBookingModal(slot, key, isEdit = false) {
         if (r.value === radioVal) r.checked = true; 
     }
 
-    // Data formatada para o Modal
     const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
     document.getElementById('modal-slot-info').innerText = `${dateFmt} • ${slot.time} • ${slot.doctor}`;
     
@@ -903,39 +939,25 @@ function checkWarning() {
         return;
     }
 
-    // Nota: O checkWarning ainda usa getSlotsFromMonth para projecão, 
-    // mas por ser ação de usuário individual não impacta tanto a performance global
+    // Projeção Rápida
     let isNewBookingRegulated = true;
     for (const r of radios) { if (r.checked && r.value === 'no') isNewBookingRegulated = false; }
 
     const monthKey = selectedDateKey.substring(0,7);
-    const slots = getSlotsFromMonth(monthKey);
-    const totalSlots = slots.length;
-
-    if (totalSlots === 0) {
-        warningBox.style.display = 'none';
-        return;
-    }
-
-    let countReg = 0;
-    let countInt = 0;
-
-    slots.forEach(s => {
-        if (s.status === 'OCUPADO' && s.contract && !CONTRACTS.MUNICIPAL.includes(s.contract)) {
-            const isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
-            if (isReg) countReg++;
-            else countInt++;
-        }
-    });
-
-    let projectedReg = countReg;
-    let projectedInt = countInt;
+    const stats = DASH_CACHE[monthKey];
     
-    if (isNewBookingRegulated) projectedReg++;
-    else projectedInt++;
+    if(!stats || stats.total === 0) return;
 
-    const pctReg = (projectedReg / totalSlots) * 100;
-    const pctInt = (projectedInt / totalSlots) * 100;
+    // Pega contagens atuais do cache
+    let countReg = stats.counts.Regulado.Total;
+    let countInt = stats.counts.Interno.Total;
+    const totalSlots = stats.total;
+
+    if (isNewBookingRegulated) countReg++;
+    else countInt++;
+
+    const pctReg = (countReg / totalSlots) * 100;
+    const pctInt = (countInt / totalSlots) * 100;
 
     let showWarning = false;
     let msg = "";
@@ -962,7 +984,6 @@ function checkWarning() {
     }
 }
 
-// AGENDAMENTO OTIMISTA + TOAST
 function confirmBookingFromModal() {
     const id = document.getElementById('selected-slot-id').value;
     const record = document.getElementById('bk-record').value;
@@ -997,8 +1018,6 @@ function confirmBookingFromModal() {
 
     showMessageModal('Confirmação', summary, 'confirm', () => {
         requestToken(async () => {
-            // 1. Atualiza Localmente
-            // Varre todas as chaves de data carregadas para achar o ID
             Object.keys(appointments).forEach(dateKey => {
                 const slotIndex = appointments[dateKey].findIndex(s => String(s.id) === String(id));
                 if (slotIndex !== -1) {
@@ -1017,18 +1036,13 @@ function confirmBookingFromModal() {
                 }
             });
 
-            // --- RECALCULA CACHE APÓS EDITAR ---
             recalculateMonthCache(selectedDateKey.substring(0, 7));
-            // -----------------------------------
-
-            // 2. Atualiza UI + Toast
             closeMessageModal();
             closeModal();
             renderSlotsList();
             updateKPIs();
             showToast("Agendamento realizado!", "success");
 
-            // 3. Envia Background
             const payload = {
                 action: "update",
                 id: id,
@@ -1069,10 +1083,7 @@ function cancelSlotBooking() {
                 }
             });
 
-            // --- RECALCULA CACHE APÓS CANCELAR ---
             recalculateMonthCache(selectedDateKey.substring(0, 7));
-            // -------------------------------------
-
             closeMessageModal();
             closeModal();
             renderSlotsList();
@@ -1092,137 +1103,90 @@ function cancelSlotBooking() {
     });
 }
 
-// --- UTILITÁRIOS E KPIS MENSAIS (COM BLOQUEIO) ---
-
-function getSlotsFromMonth(monthKey) {
-    let allSlots = [];
-    Object.keys(appointments).forEach(dateKey => {
-        if (dateKey.startsWith(monthKey)) {
-            allSlots = allSlots.concat(appointments[dateKey]);
-        }
-    });
-    return allSlots;
-}
-
-// --- KPI OPTIMIZADO: LÊ DO CACHE (O(1)) ---
+// --- KPI ---
 function updateKPIs() {
-    // 1. Identifica o mês desejado pelo seletor (ou data atual)
     const picker = document.getElementById('dashboard-month-picker');
-    let targetMonth = '';
+    let targetMonth = selectedDateKey.substring(0, 7);
 
     if (picker && picker.value) {
         targetMonth = picker.value;
-    } else {
-        targetMonth = selectedDateKey.substring(0, 7);
-        if (picker) picker.value = targetMonth;
+    } else if (picker) {
+        picker.value = targetMonth;
     }
 
-    // 2. Tenta ler do cache. Se não existir, tenta criar na hora com o que tem.
-    if (!DASH_CACHE[targetMonth]) {
-        recalculateMonthCache(targetMonth);
-    }
+    if (!DASH_CACHE[targetMonth]) recalculateMonthCache(targetMonth);
     
-    // 3. Se ainda assim não existir (ex: mês futuro vazio), cria um dummy zerado
-    // para não quebrar a tela com "--".
-    if (!DASH_CACHE[targetMonth]) {
-        DASH_CACHE[targetMonth] = {
-            total: 0,
-            occupied: 0,
-            counts: {
-                Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-                Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-                Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
-            }
-        };
-    }
+    const stats = DASH_CACHE[targetMonth] || {
+        total: 0, occupied: 0, 
+        counts: {
+            Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+            Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+            Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
+        }
+    };
 
-    // 3. LEITURA DIRETA DO CACHE (Instantâneo)
-    const stats = DASH_CACHE[targetMonth];
     const { total, occupied, counts } = stats;
 
-    // --- CÁLCULOS GERAIS ---
-    const calcPct = (val, tot) => tot > 0 ? ((val / tot) * 100).toFixed(1) : "0.0";
-    
-    document.getElementById('glb-total').innerText = total;
-    document.getElementById('glb-occupied').innerText = calcPct(occupied, total) + '%';
-    
-    const idleVal = total - occupied;
-    document.getElementById('glb-idle').innerText = calcPct(idleVal, total) + '%';
+    const pctOccupied = total > 0 ? (occupied / total) * 100 : 0;
+    const pctIdle = total > 0 ? ((total - occupied) / total) * 100 : 0;
 
-    // --- LÓGICA DE REGULADOS (META 60%) ---
-    // KPI Principal: % em relação ao TOTAL GERAL
+    animateMetric('glb-total', total);
+    animateMetric('glb-occupied', pctOccupied, true);
+    animateMetric('glb-idle', pctIdle, true);
+
     const totalReg = counts.Regulado.Total;
     const pctRegGlobal = total > 0 ? (totalReg / total) * 100 : 0;
     
-    document.getElementById('kpi-60-val').innerText = pctRegGlobal.toFixed(1) + '%';
+    animateMetric('kpi-60-val', pctRegGlobal, true);
     document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
 
-    // Sub-KPIs: % em relação ao GRUPO REGULADO + (Qtd Absoluta)
-    const fmtSub = (val, groupTotal) => {
-        const pct = groupTotal > 0 ? ((val / groupTotal) * 100).toFixed(1) : "0.0";
-        return `${pct}% (${val})`;
-    };
+    animateSubMetric('stat-estado', counts.Regulado.ESTADO, totalReg);
+    animateSubMetric('stat-serra', counts.Regulado.SERRA, totalReg);
+    animateSubMetric('stat-salgueiro', counts.Regulado.SALGUEIRO, totalReg);
 
-    document.getElementById('stat-estado').innerText = fmtSub(counts.Regulado.ESTADO, totalReg);
-    document.getElementById('stat-serra').innerText = fmtSub(counts.Regulado.SERRA, totalReg);
-    document.getElementById('stat-salgueiro').innerText = fmtSub(counts.Regulado.SALGUEIRO, totalReg);
-
-    // --- LÓGICA DE INTERNOS (META 40%) ---
-    // KPI Principal: % em relação ao TOTAL GERAL
     const totalInt = counts.Interno.Total;
     const pctIntGlobal = total > 0 ? (totalInt / total) * 100 : 0;
 
-    document.getElementById('kpi-40-val').innerText = pctIntGlobal.toFixed(1) + '%';
+    animateMetric('kpi-40-val', pctIntGlobal, true);
     document.getElementById('prog-40').style.width = Math.min(pctIntGlobal, 100) + '%';
 
-    // Sub-KPIs: % em relação ao GRUPO INTERNO + (Qtd Absoluta)
-    document.getElementById('stat-int-estado').innerText = fmtSub(counts.Interno.ESTADO, totalInt);
-    document.getElementById('stat-int-serra').innerText = fmtSub(counts.Interno.SERRA, totalInt);
-    document.getElementById('stat-int-salgueiro').innerText = fmtSub(counts.Interno.SALGUEIRO, totalInt);
+    animateSubMetric('stat-int-estado', counts.Interno.ESTADO, totalInt);
+    animateSubMetric('stat-int-serra', counts.Interno.SERRA, totalInt);
+    animateSubMetric('stat-int-salgueiro', counts.Interno.SALGUEIRO, totalInt);
 
-    // --- LÓGICA MUNICIPAL ---
-    document.getElementById('stat-recife').innerText = counts.Municipal.RECIFE;
-    document.getElementById('stat-jaboatao').innerText = counts.Municipal.JABOATÃO;
-    document.getElementById('kpi-mun-val').innerText = counts.Municipal.Total;
+    animateMetric('stat-recife', counts.Municipal.RECIFE);
+    animateMetric('stat-jaboatao', counts.Municipal.JABOATÃO);
+    animateMetric('kpi-mun-val', counts.Municipal.Total);
 }
 
-// --- NOVA GERAÇÃO DE PDF FORMATADO (TABELA LIMPA) ---
+// --- PDF ---
 function generateDashboardPDF() {
     const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
     
-    // Recalcula dados para o PDF
-    const slots = getSlotsFromMonth(monthVal);
-    const totalSlots = slots.length;
-    let occupied = 0;
-    let counts = {
-        Regulado: { ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-        Interno: { ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-        Municipal: { RECIFE: 0, JABOATÃO: 0 }
-    };
+    let stats = DASH_CACHE[monthVal];
+    if (!stats) {
+        recalculateMonthCache(monthVal);
+        stats = DASH_CACHE[monthVal];
+    }
+    
+    const { total, occupied, counts } = stats;
+    
+    const pctOcup = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
+    const totalReg = counts.Regulado.Total;
+    const totalInt = counts.Interno.Total;
+    const pctRegGlobal = total > 0 ? (totalReg / total * 100).toFixed(1) : "0.0";
+    const pctIntGlobal = total > 0 ? (totalInt / total * 100).toFixed(1) : "0.0";
 
-    slots.forEach(s => {
-        if (s.status === 'OCUPADO') {
-            occupied++;
-            const c = s.contract ? s.contract.toUpperCase() : null;
-            if(c) {
-                if (CONTRACTS.MUNICIPAL.includes(c)) {
-                    if (counts.Municipal[c] !== undefined) counts.Municipal[c]++;
-                } else if (CONTRACTS.LOCALS.includes(c)) {
-                    let isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
-                    if (isReg) { if (counts.Regulado[c] !== undefined) counts.Regulado[c]++; } 
-                    else { if (counts.Interno[c] !== undefined) counts.Interno[c]++; }
-                }
-            }
-        }
-    });
+    const calcSubPct = (val, groupTot) => groupTot > 0 ? (val / groupTot * 100).toFixed(1) : "0.0";
 
-    const totalReg = Object.values(counts.Regulado).reduce((a, b) => a + b, 0);
-    const totalInt = Object.values(counts.Interno).reduce((a, b) => a + b, 0);
-    const pctReg = totalSlots > 0 ? (totalReg / totalSlots * 100).toFixed(1) : "0.0";
-    const pctInt = totalSlots > 0 ? (totalInt / totalSlots * 100).toFixed(1) : "0.0";
-    const pctOcup = totalSlots > 0 ? (occupied / totalSlots * 100).toFixed(1) : "0.0";
+    const regEstadoPct = calcSubPct(counts.Regulado.ESTADO, totalReg);
+    const regSerraPct = calcSubPct(counts.Regulado.SERRA, totalReg);
+    const regSalgPct = calcSubPct(counts.Regulado.SALGUEIRO, totalReg);
 
-    // Cria HTML Limpo para PDF
+    const intEstadoPct = calcSubPct(counts.Interno.ESTADO, totalInt);
+    const intSerraPct = calcSubPct(counts.Interno.SERRA, totalInt);
+    const intSalgPct = calcSubPct(counts.Interno.SALGUEIRO, totalInt);
+
     const content = document.createElement('div');
     content.innerHTML = `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
@@ -1235,7 +1199,7 @@ function generateDashboardPDF() {
                 <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Global</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total de Vagas:</strong> ${totalSlots}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total de Vagas:</strong> ${total}</td>
                         <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ocupação:</strong> ${pctOcup}%</td>
                         <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ociosidade:</strong> ${(100 - parseFloat(pctOcup)).toFixed(1)}%</td>
                     </tr>
@@ -1245,25 +1209,25 @@ function generateDashboardPDF() {
             <div style="display:flex; gap:20px;">
                 <div style="flex:1;">
                     <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Regulados (Meta 60%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctReg}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
-                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${counts.Regulado.ESTADO}</td></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${counts.Regulado.SERRA}</td></tr>
-                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${counts.Regulado.SALGUEIRO}</td></tr>
-                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">${totalReg}</td></tr>
+                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${regEstadoPct}% (${counts.Regulado.ESTADO})</td></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${regSerraPct}% (${counts.Regulado.SERRA})</td></tr>
+                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${regSalgPct}% (${counts.Regulado.SALGUEIRO})</td></tr>
+                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalReg})</td></tr>
                     </table>
                 </div>
 
                 <div style="flex:1;">
                     <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Internos (Meta 40%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctInt}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
-                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${counts.Interno.ESTADO}</td></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${counts.Interno.SERRA}</td></tr>
-                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${counts.Interno.SALGUEIRO}</td></tr>
-                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">${totalInt}</td></tr>
+                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${intEstadoPct}% (${counts.Interno.ESTADO})</td></tr>
+                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${intSerraPct}% (${counts.Interno.SERRA})</td></tr>
+                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${intSalgPct}% (${counts.Interno.SALGUEIRO})</td></tr>
+                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalInt})</td></tr>
                     </table>
                 </div>
             </div>
