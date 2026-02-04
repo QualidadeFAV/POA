@@ -83,8 +83,9 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
         if (isNaN(startValue)) startValue = 0;
     }
 
-    if (startValue === targetValue) {
-        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+    // Se a mudança for pequena, atualiza direto
+    if (Math.abs(startValue - targetValue) < 0.1) {
+        element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : Math.floor(targetValue);
         return;
     }
 
@@ -107,7 +108,7 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
         if (progress < 1) {
             requestAnimationFrame(update);
         } else {
-            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : targetValue;
+            element.innerText = isPercentage ? targetValue.toFixed(1) + '%' : Math.floor(targetValue);
         }
     }
 
@@ -311,7 +312,6 @@ async function syncMonthData(baseDateKey) {
         if(!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
         DASH_CACHE[monthKey].loaded = true;
 
-        // Atualiza a tela assim que os dados chegarem
         if (selectedDateKey.startsWith(monthKey)) {
             renderSlotsList();
             if (currentView === 'admin') renderAdminTable();
@@ -451,7 +451,7 @@ function executeSwitch(view) {
     }
 }
 
-// --- INICIALIZAÇÃO OTIMIZADA (COM TELA DE CARREGAMENTO) ---
+// --- INICIALIZAÇÃO OTIMIZADA ---
 async function initData() {
     fetchValidTokens();
     
@@ -462,7 +462,6 @@ async function initData() {
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
         dashPicker.addEventListener('change', (e) => {
-            // Toast removido conforme solicitado
             syncMonthData(e.target.value); 
         });
     }
@@ -470,16 +469,12 @@ async function initData() {
     // Await para garantir que o splash screen cubra o carregamento inicial
     await syncMonthData(selectedDateKey);
 
-    // Remove o Splash Screen com fade-out suave
     const splash = document.getElementById('app-splash-screen');
     if (splash) {
         splash.style.opacity = '0';
-        setTimeout(() => {
-            splash.remove();
-        }, 500); // Aguarda a transição CSS antes de remover do DOM
+        setTimeout(() => { splash.remove(); }, 500);
     }
 
-    // Renderiza o que tem
     renderSlotsList();
     updateKPIs();
 }
@@ -942,7 +937,7 @@ function checkWarning() {
         return;
     }
 
-    // Projeção Rápida
+    // LÓGICA DE ALERTA AJUSTADA: BASE SEM MUNICIPAL
     let isNewBookingRegulated = true;
     for (const r of radios) { if (r.checked && r.value === 'no') isNewBookingRegulated = false; }
 
@@ -951,16 +946,19 @@ function checkWarning() {
     
     if(!stats || stats.total === 0) return;
 
-    // Pega contagens atuais do cache
+    // Remove municipais da base
+    const municipalCount = stats.counts.Municipal.Total;
+    const effectiveTotal = stats.total - municipalCount;
+    const validBase = effectiveTotal > 0 ? effectiveTotal : 1;
+
     let countReg = stats.counts.Regulado.Total;
     let countInt = stats.counts.Interno.Total;
-    const totalSlots = stats.total;
 
     if (isNewBookingRegulated) countReg++;
     else countInt++;
 
-    const pctReg = (countReg / totalSlots) * 100;
-    const pctInt = (countInt / totalSlots) * 100;
+    const pctReg = (countReg / validBase) * 100;
+    const pctInt = (countInt / validBase) * 100;
 
     let showWarning = false;
     let msg = "";
@@ -1106,7 +1104,7 @@ function cancelSlotBooking() {
     });
 }
 
-// --- KPI ---
+// --- KPI: AJUSTADA PARA EXCLUIR MUNICIPAL DO CÁLCULO DE % ---
 function updateKPIs() {
     const picker = document.getElementById('dashboard-month-picker');
     let targetMonth = selectedDateKey.substring(0, 7);
@@ -1130,15 +1128,31 @@ function updateKPIs() {
 
     const { total, occupied, counts } = stats;
 
-    const pctOccupied = total > 0 ? (occupied / total) * 100 : 0;
-    const pctIdle = total > 0 ? ((total - occupied) / total) * 100 : 0;
+    // --- NOVA LÓGICA DE BASE DE CÁLCULO ---
+    const totalMunicipal = counts.Municipal.Total;
+    // O "Universo Gov" são as vagas totais menos as usadas por Municípios
+    const effectiveTotal = total - totalMunicipal;
+    // Evita divisão por zero
+    const validBase = effectiveTotal > 0 ? effectiveTotal : 1;
 
+    // Cálculo da Ociosidade:
+    // Ociosidade Real = Vagas Físicas Totais - Vagas Ocupadas (Todas)
+    // Se queremos a % de ociosidade "Gov", é (Ociosidade Real / Base Gov)
+    const realIdleCount = total - occupied;
+    const pctIdleAdjusted = (realIdleCount / validBase) * 100;
+    
+    // Ocupação Global (Física) ainda pode ser útil mostrar, mas aqui vamos focar no ajuste
+    // Se o usuário quer que somem 100% com Reg + Int, a ocupação GOV é:
+    const pctOccupiedGov = ((counts.Regulado.Total + counts.Interno.Total) / validBase) * 100;
+
+    // Exibe os totais físicos, mas as porcentagens ajustadas
     animateMetric('glb-total', total);
-    animateMetric('glb-occupied', pctOccupied, true);
-    animateMetric('glb-idle', pctIdle, true);
+    // Aqui mostramos a Ocupação Ajustada (Gov) para bater 100% com a ociosidade ajustada
+    animateMetric('glb-occupied', pctOccupiedGov, true);
+    animateMetric('glb-idle', pctIdleAdjusted, true);
 
     const totalReg = counts.Regulado.Total;
-    const pctRegGlobal = total > 0 ? (totalReg / total) * 100 : 0;
+    const pctRegGlobal = (totalReg / validBase) * 100;
     
     animateMetric('kpi-60-val', pctRegGlobal, true);
     document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
@@ -1148,7 +1162,7 @@ function updateKPIs() {
     animateSubMetric('stat-salgueiro', counts.Regulado.SALGUEIRO, totalReg);
 
     const totalInt = counts.Interno.Total;
-    const pctIntGlobal = total > 0 ? (totalInt / total) * 100 : 0;
+    const pctIntGlobal = (totalInt / validBase) * 100;
 
     animateMetric('kpi-40-val', pctIntGlobal, true);
     document.getElementById('prog-40').style.width = Math.min(pctIntGlobal, 100) + '%';
@@ -1162,7 +1176,7 @@ function updateKPIs() {
     animateMetric('kpi-mun-val', counts.Municipal.Total);
 }
 
-// --- PDF ---
+// --- PDF: TAMBÉM AJUSTADO ---
 function generateDashboardPDF() {
     const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
     
@@ -1174,11 +1188,20 @@ function generateDashboardPDF() {
     
     const { total, occupied, counts } = stats;
     
-    const pctOcup = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
+    // Cálculos Ajustados para PDF
+    const totalMunicipal = counts.Municipal.Total;
+    const effectiveTotal = total - totalMunicipal;
+    const validBase = effectiveTotal > 0 ? effectiveTotal : 1;
+
+    const realIdleCount = total - occupied;
+    const pctIdleAdjusted = (realIdleCount / validBase * 100).toFixed(1);
+    const pctOccupiedGov = ((counts.Regulado.Total + counts.Interno.Total) / validBase * 100).toFixed(1);
+
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
-    const pctRegGlobal = total > 0 ? (totalReg / total * 100).toFixed(1) : "0.0";
-    const pctIntGlobal = total > 0 ? (totalInt / total * 100).toFixed(1) : "0.0";
+    
+    const pctRegGlobal = (totalReg / validBase * 100).toFixed(1);
+    const pctIntGlobal = (totalInt / validBase * 100).toFixed(1);
 
     const calcSubPct = (val, groupTot) => groupTot > 0 ? (val / groupTot * 100).toFixed(1) : "0.0";
 
@@ -1196,15 +1219,19 @@ function generateDashboardPDF() {
             <div style="border-bottom: 2px solid #0284c7; padding-bottom: 10px; margin-bottom: 20px;">
                 <h1 style="color: #1e293b; font-size: 24px; margin: 0;">Relatório de Governança Cirúrgica</h1>
                 <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período de Referência: ${monthVal}</div>
+                <div style="color: #dc2626; font-size: 11px; margin-top: 2px;">*Cálculos excluem contratos municipais (Recife/Jaboatão)</div>
             </div>
 
             <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Global</h3>
+                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Ajustada (Base Gov)</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total de Vagas:</strong> ${total}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ocupação:</strong> ${pctOcup}%</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ociosidade:</strong> ${(100 - parseFloat(pctOcup)).toFixed(1)}%</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Vagas Totais (Físicas):</strong> ${total}</td>
+                         <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Vagas Municipais:</strong> ${totalMunicipal}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ocupação (Gov):</strong> ${pctOccupiedGov}%</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Ociosidade (Gov):</strong> ${pctIdleAdjusted}%</td>
                     </tr>
                 </table>
             </div>
@@ -1212,7 +1239,7 @@ function generateDashboardPDF() {
             <div style="display:flex; gap:20px;">
                 <div style="flex:1;">
                     <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Regulados (Meta 60%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">da base ajustada</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                         <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
                         <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${regEstadoPct}% (${counts.Regulado.ESTADO})</td></tr>
@@ -1224,7 +1251,7 @@ function generateDashboardPDF() {
 
                 <div style="flex:1;">
                     <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Contratos Internos (Meta 40%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">do total</span></div>
+                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">da base ajustada</span></div>
                     <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                         <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
                         <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${intEstadoPct}% (${counts.Interno.ESTADO})</td></tr>
@@ -1236,7 +1263,7 @@ function generateDashboardPDF() {
             </div>
 
             <div style="margin-top: 30px;">
-                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Sem Meta)</h3>
+                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Removidos da Base)</h3>
                  <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
                     <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Município</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
                     <tr><td style="padding:8px; border-bottom:1px solid #eee;">Recife</td><td style="padding:8px; text-align:right;">${counts.Municipal.RECIFE}</td></tr>
