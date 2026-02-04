@@ -281,7 +281,7 @@ async function fetchRemoteData(dateKey, isBackground = false) {
     }
 }
 
-// 4. SINCRONIZAR MÊS INTEIRO (AGORA NÃO BLOQUEANTE)
+// 4. SINCRONIZAR MÊS INTEIRO
 async function syncMonthData(baseDateKey) {
     if(!baseDateKey) return;
     
@@ -293,7 +293,6 @@ async function syncMonthData(baseDateKey) {
         return; 
     }
 
-    // Não mostra mais splash text bloqueante
     setLoading(true);
     console.log(`Buscando mês inteiro: ${monthKey}`);
 
@@ -452,8 +451,8 @@ function executeSwitch(view) {
     }
 }
 
-// --- INICIALIZAÇÃO OTIMIZADA (SEM TRAVAS) ---
-function initData() {
+// --- INICIALIZAÇÃO OTIMIZADA (COM TELA DE CARREGAMENTO) ---
+async function initData() {
     fetchValidTokens();
     
     const picker = document.getElementById('sidebar-date-picker');
@@ -463,20 +462,24 @@ function initData() {
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
         dashPicker.addEventListener('change', (e) => {
-            // Não bloqueia mais a tela, só avisa no toast/cursor
-            showToast('Sincronizando novo mês...', 'success');
+            // Toast removido conforme solicitado
             syncMonthData(e.target.value); 
         });
     }
 
-    // 1. Remove Splash Screen IMEDIATAMENTE
+    // Await para garantir que o splash screen cubra o carregamento inicial
+    await syncMonthData(selectedDateKey);
+
+    // Remove o Splash Screen com fade-out suave
     const splash = document.getElementById('app-splash-screen');
-    if (splash) splash.remove();
+    if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(() => {
+            splash.remove();
+        }, 500); // Aguarda a transição CSS antes de remover do DOM
+    }
 
-    // 2. Dispara a carga em segundo plano (sem await)
-    syncMonthData(selectedDateKey);
-
-    // 3. Renderiza o que tem (mesmo que vazio inicialmente)
+    // Renderiza o que tem
     renderSlotsList();
     updateKPIs();
 }
