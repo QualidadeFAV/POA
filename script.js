@@ -21,6 +21,9 @@ let currentView = 'booking';
 let currentSlotId = null;
 let currentDateKey = null;
 
+// FLATPICKR INSTANCE
+let fpInstance = null;
+
 // --- CONTROLE DE SESSÃO ---
 let currentUserToken = null;
 let currentUserRole = null;
@@ -372,6 +375,9 @@ function recalculateMonthCache(monthKey) {
     DASH_CACHE[monthKey].total = totalSlots;
     DASH_CACHE[monthKey].occupied = occupiedSlots;
     DASH_CACHE[monthKey].counts = counts;
+
+    // Atualiza marcadores visuais sempre que recalcular cache
+    updateCalendarMarkers();
 }
 
 // --- COMUNICAÇÃO COM O BACKEND (GOOGLE SHEETS) ---
@@ -610,11 +616,9 @@ function closeLoginModal() {
 
 function switchView(view) {
     if (view === 'admin') {
-        if (!currentUserToken) {
-            requestToken(() => executeSwitch('admin'), "Acesso Gestor");
-        } else {
-            executeSwitch('admin');
-        }
+        // SEMPRE PEDE TOKEN PARA ADMIN, MESMO SE JÁ TIVER TOKEN
+        // Isso atende: "se eu for fazer outra coisa... é pra pedir de novo!"
+        requestToken(() => executeSwitch('admin'), "Acesso Gestor");
     } else {
         currentUserToken = null;
         currentUserRole = null;
@@ -653,8 +657,25 @@ function executeSwitch(view) {
 async function initData() {
     fetchValidTokens();
 
-    const picker = document.getElementById('sidebar-date-picker');
-    if (picker) picker.value = selectedDateKey;
+    // INICIALIZA O FLATPICKR
+    fpInstance = flatpickr("#sidebar-date-picker", {
+        locale: "pt",
+        dateFormat: "Y-m-d",
+        defaultDate: selectedDateKey,
+        disableMobile: "true", // Força o tema customizado mesmo em mobile
+        onChange: function (selectedDates, dateStr, instance) {
+            if (dateStr && dateStr !== selectedDateKey) {
+                selectedDateKey = dateStr;
+                updateSidebarDate();
+            }
+        },
+        onMonthChange: function (selectedDates, dateStr, instance) {
+            // Quando muda o mês no calendário, garante que temos dados daquele mês
+            const year = instance.currentYear;
+            const month = String(instance.currentMonth + 1).padStart(2, '0');
+            syncMonthData(`${year}-${month}`);
+        }
+    });
 
     const dashPicker = document.getElementById('dashboard-month-picker');
     if (dashPicker) {
@@ -667,6 +688,14 @@ async function initData() {
     // Await para garantir que o splash screen cubra o carregamento inicial
     await syncMonthData(selectedDateKey);
 
+    // CLICK TRIGGER PARA O CALENDÁRIO
+    const triggerBox = document.getElementById('date-trigger-box');
+    if (triggerBox && fpInstance) {
+        triggerBox.addEventListener('click', () => {
+            fpInstance.open();
+        });
+    }
+
     const splash = document.getElementById('app-splash-screen');
     if (splash) {
         splash.style.opacity = '0';
@@ -675,13 +704,54 @@ async function initData() {
 
     renderSlotsList();
     updateKPIs();
+    updateCalendarMarkers(); // Atualiza bolinhas iniciais
+}
+
+// ATUALIZA MARCADORES DO CALENDÁRIO (BOLINHA VERDE)
+function updateCalendarMarkers() {
+    if (!fpInstance) return;
+
+    // Identifica dias com vagas livres
+    const freeDates = [];
+    Object.keys(appointments).forEach(key => {
+        const slots = appointments[key];
+        const hasFree = slots.some(s => s.status === 'LIVRE');
+        if (hasFree) freeDates.push(key);
+    });
+
+    // Remove a classe customizada de todos os dias (limpeza)
+    const days = document.querySelectorAll('.flatpickr-day');
+    days.forEach(day => day.classList.remove('has-free-slots'));
+
+    // Adiciona a classe visual nos dias livres
+    // Flatpickr não tem API direta fácil para "addClassToDate", mas podemos redesenhar ou usar config.
+    // Uma forma eficiente é manipular via onDayCreate, mas para atualizar dinamicamente setamos o evento novamente.
+
+    fpInstance.set('onDayCreate', function (dObj, dStr, fp, dayElem) {
+        // Formata a data do elemento dia para YYYY-MM-DD
+        const date = dayElem.dateObj;
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const key = `${y}-${m}-${d}`;
+
+        if (freeDates.includes(key)) {
+            dayElem.classList.add('has-free-slots');
+        }
+    });
+
+    // Força redraw para aplicar o onDayCreate se já estiver aberto, ou prepara para próxima abertura
+    // (Flatpickr redesenha dias ao navegar, mas set('onDayCreate') não redesenha o mês atual automaticamente se nao mudar algo)
+    // Redraw hack:
+    fpInstance.redraw();
 }
 
 function updateSidebarDate() {
-    const picker = document.getElementById('sidebar-date-picker');
-    if (picker && picker.value) {
-        selectedDateKey = picker.value;
+    // Atualiza input se mudou externamente (setas)
+    if (fpInstance && fpInstance.input.value !== selectedDateKey) {
+        fpInstance.setDate(selectedDateKey, false); // false = não disparar onChange
     }
+
     document.getElementById('room-filter').value = 'ALL';
     document.getElementById('location-filter').value = 'ALL';
 
@@ -789,10 +859,14 @@ function renderSlotsList() {
         return;
     }
 
-    slots.forEach(slot => {
+    slots.forEach((slot, index) => {
         const item = document.createElement('div');
         item.className = 'slot-item';
         if (currentSlotId === slot.id) item.classList.add('active');
+
+        // STAGGERED ANIMATION DELAY
+        // Efeito cascata: 0.05s por item
+        item.style.animationDelay = `${index * 0.05}s`;
 
         let statusClass = slot.status === 'LIVRE' ? 'free' : 'booked';
         let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
@@ -1095,6 +1169,11 @@ function deleteSlot(id) {
 
             showToast('Vaga excluída.', 'success');
         }
+
+        // STRICT TOKEN
+        currentUserToken = null;
+        currentUserRole = null;
+
         setLoading(false);
     });
 }
@@ -1296,6 +1375,10 @@ function confirmBookingFromModal() {
                 createdBy: currentUserToken
             };
 
+            // STRICT TOKEN: Limpa o token imediatamente após o uso
+            currentUserToken = null;
+            currentUserRole = null;
+
             sendUpdateToSheet(payload).then(success => {
                 if (!success) {
                     showToast("Falha ao salvar no servidor.", "error");
@@ -1336,6 +1419,10 @@ function cancelSlotBooking() {
                 patient: '', record: '', contract: '', regulated: null,
                 procedure: '', detail: '', eye: '', createdBy: currentUserToken
             };
+
+            // STRICT TOKEN: Limpa o token imediatamente
+            currentUserToken = null;
+            currentUserRole = null;
 
             sendUpdateToSheet(payload);
         }, "Autorizar Cancelamento");
