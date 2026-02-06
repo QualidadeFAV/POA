@@ -3,11 +3,11 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-sYiyql5P9iw5ujdbQTnu7w0hMNCqTFwxPocIPh2bQVg/exec";
 
 // --- DADOS GLOBAIS ---
-let appointments = {}; 
-let validTokensMap = {}; 
+let appointments = {};
+let validTokensMap = {};
 
 // --- CACHE DE PERFORMANCE ---
-const DASH_CACHE = {}; 
+const DASH_CACHE = {};
 // Estrutura: { "2026-02": { total: 100, occupied: 50, loaded: true, counts: {...} } }
 
 // CONFIGURAÇÃO DA DATA INICIAL (HOJE)
@@ -15,7 +15,7 @@ const todayDate = new Date();
 const yInit = todayDate.getFullYear();
 const mInit = String(todayDate.getMonth() + 1).padStart(2, '0');
 const dInit = String(todayDate.getDate()).padStart(2, '0');
-let selectedDateKey = `${yInit}-${mInit}-${dInit}`; 
+let selectedDateKey = `${yInit}-${mInit}-${dInit}`;
 
 let currentView = 'booking';
 let currentSlotId = null;
@@ -30,6 +30,64 @@ let pendingAction = null;
 const CONTRACTS = {
     LOCALS: ["ESTADO", "SERRA", "SALGUEIRO"],
     MUNICIPAL: ["RECIFE", "JABOATÃO"]
+};
+
+// --- CONFIGURAÇÃO DE PROCEDIMENTOS POR ESPECIALIDADE ---
+const SPECIALTY_PROCEDURES = {
+    "RETINA": [
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular"
+    ],
+    "CATARATA": [
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
+    ],
+    "GLAUCOMA": [
+        "Trabeculectomia",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
+    ],
+    "CORNEA": [
+        "Implante Intra-Estromal",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Recobrimento Conjuntival"
+    ],
+    "PLASTICA": [
+        "Correção Cirúrgica de Entropio e Ectropio",
+        "Correção Cirúrgica de Epicanto e Telecanto",
+        "Correção Cirúrgica de Lagoftalmo",
+        "Dacriocistorrinostomia",
+        "Exérese de Calazio e outras Pequenas Lesões",
+        "Reconstituição de Canal Lacrimal",
+        "Reconstituição de Fornix Conjuntival",
+        "Tratamento de Ptose Palpebral"
+    ],
+    "ESTRABISMO": [
+        "Correção Cirúrgica de Estrabismo (Acima de 02 Musculos)",
+        "Correção Cirúrgica de Estrabismo (Até de 02 Musculos)"
+    ],
+    "LASER": [
+        "Setorial",
+        "Periferia",
+        "Periferia 360",
+        "Complemento de Panfoto",
+        "Laser Focal",
+        "Panfoto",
+        "Capsulotomia",
+        "Trabeculoplastia"
+    ],
+    "GERAL": [
+        "Recobrimento Conjuntival"
+    ]
 };
 
 // --- INDICADOR DE CARREGAMENTO (CURSOR) ---
@@ -55,8 +113,8 @@ function showToast(message, type = 'success') {
     }
     const bg = type === 'success' ? '#059669' : (type === 'error' ? '#dc2626' : '#1e293b');
     toast.style.background = bg;
-    
-    const icon = type === 'success' 
+
+    const icon = type === 'success'
         ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
         : '';
 
@@ -77,7 +135,7 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
 
     let startValue = 0;
     const currentText = element.innerText;
-    
+
     if (currentText !== '--' && currentText !== '--%') {
         startValue = parseFloat(currentText.replace('%', '').replace('(', '').replace(')', ''));
         if (isNaN(startValue)) startValue = 0;
@@ -94,7 +152,7 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
     function update(currentTime) {
         const elapsed = currentTime - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const ease = 1 - Math.pow(1 - progress, 4); 
+        const ease = 1 - Math.pow(1 - progress, 4);
 
         const current = startValue + (targetValue - startValue) * ease;
 
@@ -121,7 +179,7 @@ function animateSubMetric(elementId, val, groupTotal) {
 
     const pct = groupTotal > 0 ? (val / groupTotal) * 100 : 0;
     const finalText = `${pct.toFixed(1)}% (${val})`;
-    
+
     element.innerText = finalText;
 }
 
@@ -130,7 +188,7 @@ function animateSubMetric(elementId, val, groupTotal) {
 // Helper para ler/escrever os procedimentos do slot (compatível com JSON novo e String antiga)
 function getProceduresFromSlot(slot) {
     if (!slot.procedure) return [];
-    
+
     try {
         const parsed = JSON.parse(slot.procedure);
         if (Array.isArray(parsed)) return parsed;
@@ -149,7 +207,7 @@ function handleContractChange() {
 
     checkBoxes.forEach(cb => {
         const label = cb.parentElement;
-        
+
         if (isMunicipal) {
             // REGRA: Se municipal, desmarca e desabilita (cinza)
             cb.checked = false;
@@ -173,10 +231,22 @@ function handleContractChange() {
 function addProcedureRow(name = '', isRegulated = true) {
     const container = document.getElementById('procedures-container');
     const id = Date.now() + Math.random().toString(16).slice(2);
-    
+
     // Verifica estado atual do contrato para criar o checkbox já correto
     const contract = document.getElementById('bk-contract').value;
     const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
+
+    // Verifica Especialidade da Vaga
+    const rawSpecialty = document.getElementById('bk-specialty').value || "";
+    // Normaliza para chave (upper e sem acentos básicos se necessário, aqui assumindo match direto ou upper)
+    // Mapeamento simples de segurança para acentos
+    const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E' };
+    let normalizedSpec = rawSpecialty.toUpperCase().replace(/[ÇÃÕÁÉÍÓÚÂÊ]/g, c => mapAccents[c] || c);
+
+    // Fallback: Se for "LASERS" (plural), converte para "LASER"
+    if (normalizedSpec === 'LASERS') normalizedSpec = 'LASER';
+
+    const allowedProcs = SPECIALTY_PROCEDURES[normalizedSpec];
 
     let checkState = isRegulated ? 'checked' : '';
     let disabledAttr = '';
@@ -189,15 +259,34 @@ function addProcedureRow(name = '', isRegulated = true) {
         opacityStyle = '0.5';
         cursorStyle = 'not-allowed';
     }
-    
+
     const row = document.createElement('div');
     row.className = 'procedure-row';
     row.id = `proc-row-${id}`;
     row.style.cssText = "display:flex; gap:8px; align-items:center;";
-    
-    // AQUI: Alterado o placeholder para "Ex: Faco..."
+
+    let inputHtml = '';
+
+    if (allowedProcs && allowedProcs.length > 0) {
+        // Renderiza SELECT
+        let options = `<option value="">Selecione o procedimento...</option>`;
+        allowedProcs.forEach(proc => {
+            const selected = proc === name ? 'selected' : '';
+            options += `<option value="${proc}" ${selected}>${proc}</option>`;
+        });
+
+        inputHtml = `
+            <select class="form-select proc-name-input" style="flex:1;">
+                ${options}
+            </select>
+        `;
+    } else {
+        // Renderiza INPUT TEXT (Fallback)
+        inputHtml = `<input type="text" class="form-input proc-name-input" placeholder="Ex: Faco, Lio..." value="${name}" style="flex:1;">`;
+    }
+
     row.innerHTML = `
-        <input type="text" class="form-input proc-name-input" placeholder="Ex: Faco, Lio..." value="${name}" style="flex:1;">
+        ${inputHtml}
         
         <label style="display:flex; align-items:center; gap:4px; font-size:0.8rem; cursor:${cursorStyle}; background:white; padding:8px; border:1px solid #cbd5e1; border-radius:8px; opacity:${opacityStyle}" title="Marcar se é Regulado">
             <input type="checkbox" class="proc-reg-check" ${checkState} ${disabledAttr} onchange="checkWarning()">
@@ -209,12 +298,12 @@ function addProcedureRow(name = '', isRegulated = true) {
         </button>
     `;
     container.appendChild(row);
-    if(name === '') checkWarning();
+    if (name === '') checkWarning();
 }
 
 function removeProcedureRow(id) {
     const row = document.getElementById(`proc-row-${id}`);
-    if(row) row.remove();
+    if (row) row.remove();
     checkWarning();
 }
 
@@ -239,7 +328,7 @@ function recalculateMonthCache(monthKey) {
             daySlots.forEach(s => {
                 if (s.status === 'OCUPADO') {
                     occupiedSlots++;
-                    
+
                     const c = s.contract ? s.contract.toUpperCase() : null;
                     if (!c) return;
 
@@ -278,8 +367,8 @@ function recalculateMonthCache(monthKey) {
         }
     });
 
-    if(!DASH_CACHE[monthKey]) DASH_CACHE[monthKey] = {};
-    
+    if (!DASH_CACHE[monthKey]) DASH_CACHE[monthKey] = {};
+
     DASH_CACHE[monthKey].total = totalSlots;
     DASH_CACHE[monthKey].occupied = occupiedSlots;
     DASH_CACHE[monthKey].counts = counts;
@@ -310,13 +399,13 @@ function processRawData(rows, forceDateKey = null) {
     }
 
     rows.forEach(row => {
-        const key = row.date; 
+        const key = row.date;
         if (!key) return;
 
         if (!appointments[key]) appointments[key] = [];
-        
+
         const exists = appointments[key].find(s => String(s.id) === String(row.id));
-        
+
         if (!exists) {
             appointments[key].push({
                 id: row.id,
@@ -338,7 +427,7 @@ function processRawData(rows, forceDateKey = null) {
             });
         } else {
             const idx = appointments[key].findIndex(s => String(s.id) === String(row.id));
-            if(idx !== -1) {
+            if (idx !== -1) {
                 appointments[key][idx] = {
                     ...appointments[key][idx],
                     status: row.status,
@@ -373,8 +462,8 @@ async function fetchRemoteData(dateKey, isBackground = false) {
 
         if (data.error) throw new Error(data.error);
 
-        if(data.length === 0) appointments[dateKey] = [];
-        
+        if (data.length === 0) appointments[dateKey] = [];
+
         processRawData(data, dateKey);
 
         if (dateKey === selectedDateKey) {
@@ -393,14 +482,14 @@ async function fetchRemoteData(dateKey, isBackground = false) {
 
 // 4. SINCRONIZAR MÊS INTEIRO
 async function syncMonthData(baseDateKey) {
-    if(!baseDateKey) return;
-    
+    if (!baseDateKey) return;
+
     const parts = baseDateKey.split('-');
-    const monthKey = `${parts[0]}-${parts[1]}`; 
-    
+    const monthKey = `${parts[0]}-${parts[1]}`;
+
     if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
         console.log("Mês já carregado (Cache).");
-        return; 
+        return;
     }
 
     setLoading(true);
@@ -409,16 +498,16 @@ async function syncMonthData(baseDateKey) {
     try {
         const response = await fetch(`${API_URL}?month=${monthKey}`, { redirect: "follow" });
         const data = await response.json();
-        
+
         if (data.error) throw new Error(data.error);
 
         Object.keys(appointments).forEach(k => {
-            if(k.startsWith(monthKey)) delete appointments[k];
+            if (k.startsWith(monthKey)) delete appointments[k];
         });
 
         processRawData(data);
-        
-        if(!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
+
+        if (!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
         DASH_CACHE[monthKey].loaded = true;
 
         if (selectedDateKey.startsWith(monthKey)) {
@@ -489,10 +578,10 @@ function attemptLogin() {
         input.style.borderColor = '#dc2626';
         input.style.color = '#dc2626';
         input.focus();
-        
+
         const card = document.querySelector('#login-modal .modal-card');
         card.style.animation = 'none';
-        card.offsetHeight; 
+        card.offsetHeight;
         card.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
     }
 }
@@ -527,7 +616,7 @@ function switchView(view) {
             executeSwitch('admin');
         }
     } else {
-        currentUserToken = null; 
+        currentUserToken = null;
         currentUserRole = null;
         executeSwitch('booking');
     }
@@ -552,7 +641,7 @@ function executeSwitch(view) {
         document.getElementById('view-booking').style.display = 'block';
         document.getElementById('section-stats').style.display = 'block';
         sidebar.classList.remove('locked');
-        updateKPIs(); 
+        updateKPIs();
     } else {
         document.getElementById('view-admin').style.display = 'block';
         renderAdminTable();
@@ -563,15 +652,15 @@ function executeSwitch(view) {
 // --- INICIALIZAÇÃO OTIMIZADA ---
 async function initData() {
     fetchValidTokens();
-    
+
     const picker = document.getElementById('sidebar-date-picker');
-    if (picker) picker.value = selectedDateKey; 
-    
+    if (picker) picker.value = selectedDateKey;
+
     const dashPicker = document.getElementById('dashboard-month-picker');
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
         dashPicker.addEventListener('change', (e) => {
-            syncMonthData(e.target.value); 
+            syncMonthData(e.target.value);
         });
     }
 
@@ -597,7 +686,7 @@ function updateSidebarDate() {
     document.getElementById('location-filter').value = 'ALL';
 
     const monthKey = selectedDateKey.substring(0, 7);
-    
+
     if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
         renderSlotsList();
     } else {
@@ -649,7 +738,7 @@ function updateFilterOptions() {
             opt.value = r; opt.textContent = r; roomSelect.appendChild(opt);
         });
     }
-    
+
     if (locSelect.options.length <= 1) {
         locSelect.innerHTML = '<option value="ALL">Todas Unidades</option>';
         locations.forEach(l => {
@@ -729,7 +818,7 @@ function renderSlotsList() {
         if (slot.status === 'OCUPADO') {
             const procs = getProceduresFromSlot(slot);
             let procDisplay = '-';
-            if(procs.length === 1) {
+            if (procs.length === 1) {
                 procDisplay = procs[0].name;
             } else if (procs.length > 1) {
                 procDisplay = `${procs.length} Procedimentos`;
@@ -749,9 +838,9 @@ function renderSlotsList() {
             </div>
             `;
         } else {
-             mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
+            mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
         }
-        
+
         mainInfo += `</div>`;
 
         item.innerHTML = `
@@ -821,9 +910,9 @@ function bulkCreateSlots() {
         closeMessageModal();
         if (success) {
             showToast(`${qty} vagas criadas!`, 'success');
-            
-            processRawData(slotsToSend.map(s => ({...s, status: 'LIVRE', created_by: currentUserToken})));
-            
+
+            processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE', created_by: currentUserToken })));
+
             selectedDateKey = dateVal;
             document.getElementById('sidebar-date-picker').value = selectedDateKey;
             renderSlotsList();
@@ -840,15 +929,15 @@ function renderAdminTable() {
     if (!tbody) return;
 
     const currentlyChecked = Array.from(document.querySelectorAll('.slot-checkbox:checked'))
-                                  .map(cb => String(cb.value));
+        .map(cb => String(cb.value));
 
     tbody.innerHTML = '';
 
     const targetMonth = selectedDateKey.substring(0, 7);
     const slots = [];
-    
+
     Object.keys(appointments).forEach(k => {
-        if(k.startsWith(targetMonth)) slots.push(...appointments[k]);
+        if (k.startsWith(targetMonth)) slots.push(...appointments[k]);
     });
 
     slots.sort((a, b) => {
@@ -858,17 +947,17 @@ function renderAdminTable() {
 
     slots.forEach(slot => {
         const tr = document.createElement('tr');
-        
-        let statusHtml = slot.status === 'OCUPADO' 
+
+        let statusHtml = slot.status === 'OCUPADO'
             ? `<span style="background:#fee2e2; color:#dc2626; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">OCUPADO</span>`
             : `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">LIVRE</span>`;
-        
+
         const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
         const isChecked = currentlyChecked.includes(String(slot.id)) ? 'checked' : '';
 
         let specDisplay = slot.specialty;
         const procs = getProceduresFromSlot(slot);
-        if(procs.length > 1) specDisplay = `${procs.length} Procs`;
+        if (procs.length > 1) specDisplay = `${procs.length} Procs`;
         else if (procs.length === 1) specDisplay = procs[0].name;
 
         tr.innerHTML = `
@@ -891,9 +980,9 @@ function renderAdminTable() {
     });
 
     updateDeleteButton();
-    
+
     const masterCheck = document.getElementById('check-all-slots');
-    if(masterCheck) {
+    if (masterCheck) {
         const total = document.querySelectorAll('.slot-checkbox').length;
         const checked = document.querySelectorAll('.slot-checkbox:checked').length;
         masterCheck.checked = (total > 0 && total === checked);
@@ -939,13 +1028,13 @@ async function deleteSelectedSlots() {
 async function processBatchDelete(ids) {
     showMessageModal('Processando', `Iniciando exclusão...`, 'loading');
     const msgBody = document.getElementById('msg-body');
-    
+
     let successCount = 0;
     const total = ids.length;
 
     for (let i = 0; i < total; i++) {
         const id = ids[i];
-        if(msgBody) msgBody.innerText = `Excluindo ${i + 1} de ${total}...`;
+        if (msgBody) msgBody.innerText = `Excluindo ${i + 1} de ${total}...`;
         await new Promise(r => setTimeout(r, 20));
 
         try {
@@ -958,7 +1047,7 @@ async function processBatchDelete(ids) {
             const result = await response.json();
             if (result.status === 'success') {
                 successCount++;
-                
+
                 Object.keys(appointments).forEach(key => {
                     appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
                 });
@@ -969,19 +1058,19 @@ async function processBatchDelete(ids) {
     recalculateMonthCache(selectedDateKey.substring(0, 7));
 
     closeMessageModal();
-    renderSlotsList(); 
-    renderAdminTable(); 
-    updateKPIs(); 
+    renderSlotsList();
+    renderAdminTable();
+    updateKPIs();
 
     showToast(`${successCount} vagas excluídas.`, 'success');
 }
 
 function deleteSlot(id) {
-    const monthKey = selectedDateKey.substring(0,7);
+    const monthKey = selectedDateKey.substring(0, 7);
     let slot = null;
-    
+
     Object.keys(appointments).forEach(k => {
-        if(!slot && k.startsWith(monthKey)) slot = appointments[k].find(s => String(s.id) === String(id));
+        if (!slot && k.startsWith(monthKey)) slot = appointments[k].find(s => String(s.id) === String(id));
     });
 
     let msg = 'Excluir vaga permanentemente?';
@@ -991,11 +1080,11 @@ function deleteSlot(id) {
 
     showMessageModal('Excluir', msg, 'confirm', async () => {
         closeMessageModal();
-        setLoading(true); 
-        
+        setLoading(true);
+
         const success = await sendUpdateToSheet({ action: "delete", id: id });
         if (success) {
-             Object.keys(appointments).forEach(key => {
+            Object.keys(appointments).forEach(key => {
                 appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
             });
 
@@ -1020,33 +1109,33 @@ function openBookingModal(slot, key, isEdit = false) {
     document.getElementById('bk-contract').value = slot.contract || '';
     document.getElementById('bk-detail').value = slot.detail || '';
     document.getElementById('bk-eye').value = slot.eye || '';
-    
+
     // CARREGA A ESPECIALIDADE (CATEGORIA DA VAGA) NO CAMPO FIXO
-    document.getElementById('bk-specialty').value = slot.specialty || ''; 
+    document.getElementById('bk-specialty').value = slot.specialty || '';
 
     document.getElementById('selected-slot-id').value = slot.id;
 
     // --- POPULAR PROCEDIMENTOS ---
     const container = document.getElementById('procedures-container');
     container.innerHTML = '';
-    
+
     const procs = getProceduresFromSlot(slot);
-    
+
     // ATUALIZAÇÃO: Se a vaga estiver LIVRE, ignoramos o procedimento padrão (ex: CATARATA)
     // e mostramos uma linha vazia para o usuário digitar.
     if (slot.status === 'LIVRE') {
-        addProcedureRow('', true); 
+        addProcedureRow('', true);
     } else {
-        if(procs.length === 0) addProcedureRow('', true);
+        if (procs.length === 0) addProcedureRow('', true);
         else procs.forEach(p => addProcedureRow(p.name, p.regulated));
     }
-    
+
     // Fallback de segurança
     if (container.children.length === 0) addProcedureRow('', true);
 
     const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
     document.getElementById('modal-slot-info').innerText = `${dateFmt} • ${slot.time} • ${slot.doctor}`;
-    
+
     document.getElementById('warning-box').style.display = 'none';
 
     const btnArea = document.getElementById('action-buttons-area');
@@ -1057,7 +1146,7 @@ function openBookingModal(slot, key, isEdit = false) {
     }
 
     modal.classList.add('open');
-    
+
     // Aplica regra de contrato (bloqueia checkboxes se for municipal)
     handleContractChange();
 }
@@ -1068,7 +1157,7 @@ function checkWarning() {
     const contract = document.getElementById('bk-contract').value;
     const warningBox = document.getElementById('warning-box');
     const msgText = document.getElementById('warning-msg-text');
-    
+
     if (!contract || CONTRACTS.MUNICIPAL.includes(contract)) {
         warningBox.style.display = 'none';
         return;
@@ -1078,27 +1167,27 @@ function checkWarning() {
     let newInt = 0;
     document.querySelectorAll('.procedure-row').forEach(row => {
         const nameInput = row.querySelector('.proc-name-input');
-        if(nameInput && nameInput.value.trim()) {
+        if (nameInput && nameInput.value.trim()) {
             const isReg = row.querySelector('.proc-reg-check').checked;
-            if(isReg) newReg++; else newInt++;
+            if (isReg) newReg++; else newInt++;
         }
     });
 
-    if (newReg === 0 && newInt === 0) newReg = 1; 
+    if (newReg === 0 && newInt === 0) newReg = 1;
 
-    const monthKey = selectedDateKey.substring(0,7);
+    const monthKey = selectedDateKey.substring(0, 7);
     const stats = DASH_CACHE[monthKey];
-    
-    if(!stats || stats.total === 0) return;
+
+    if (!stats || stats.total === 0) return;
 
     let currentTotalReg = stats.counts.Regulado.Total;
     let currentTotalInt = stats.counts.Interno.Total;
-    
+
     let simTotalReg = currentTotalReg + newReg;
     let simTotalInt = currentTotalInt + newInt;
     let simTotal = simTotalReg + simTotalInt;
-    
-    if(simTotal === 0) simTotal = 1;
+
+    if (simTotal === 0) simTotal = 1;
 
     const pctReg = (simTotalReg / simTotal) * 100;
     const pctInt = (simTotalInt / simTotal) * 100;
@@ -1116,12 +1205,12 @@ function checkWarning() {
 
     if (showWarning) {
         warningBox.style.display = 'flex';
-        if(msgText) msgText.innerHTML = msg;
+        if (msgText) msgText.innerHTML = msg;
         else {
-             const div = document.createElement('div');
-             div.id = 'warning-msg-text';
-             div.innerHTML = msg;
-             warningBox.appendChild(div);
+            const div = document.createElement('div');
+            div.id = 'warning-msg-text';
+            div.innerHTML = msg;
+            warningBox.appendChild(div);
         }
     } else {
         warningBox.style.display = 'none';
@@ -1142,7 +1231,7 @@ function confirmBookingFromModal() {
     procRows.forEach(row => {
         const name = row.querySelector('.proc-name-input').value.trim();
         const isReg = row.querySelector('.proc-reg-check').checked;
-        if(name) {
+        if (name) {
             proceduresList.push({ name: name, regulated: isReg });
         }
     });
@@ -1178,7 +1267,7 @@ function confirmBookingFromModal() {
                         record: record,
                         contract: contract,
                         regulated: mainRegulatedStatus,
-                        procedure: procedureJSON, 
+                        procedure: procedureJSON,
                         detail: detail,
                         eye: eye,
                         createdBy: currentUserToken
@@ -1220,7 +1309,7 @@ function cancelSlotBooking() {
     showMessageModal('Liberar Vaga', 'Remover paciente e procedimentos?', 'confirm', () => {
         requestToken(async () => {
             const id = document.getElementById('selected-slot-id').value;
-            
+
             Object.keys(appointments).forEach(dateKey => {
                 const slotIndex = appointments[dateKey].findIndex(s => String(s.id) === String(id));
                 if (slotIndex !== -1) {
@@ -1247,7 +1336,7 @@ function cancelSlotBooking() {
                 patient: '', record: '', contract: '', regulated: null,
                 procedure: '', detail: '', eye: '', createdBy: currentUserToken
             };
-            
+
             sendUpdateToSheet(payload);
         }, "Autorizar Cancelamento");
     });
@@ -1265,9 +1354,9 @@ function updateKPIs() {
     }
 
     if (!DASH_CACHE[targetMonth]) recalculateMonthCache(targetMonth);
-    
+
     const stats = DASH_CACHE[targetMonth] || {
-        total: 0, occupied: 0, 
+        total: 0, occupied: 0,
         counts: {
             Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
             Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
@@ -1280,24 +1369,24 @@ function updateKPIs() {
     const totalMunicipal = counts.Municipal.Total;
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
-    
+
     // Universo GOV = Soma de procedimentos estaduais/locais
     const universeGov = totalReg + totalInt;
     const validBaseGov = universeGov > 0 ? universeGov : 1;
 
     // Ocupação Global (Ainda baseada em vagas físicas)
     const realIdleCount = total - occupied;
-    
+
     animateMetric('glb-total', total);
-    
+
     const pctOccupiedPhysical = total > 0 ? (occupied / total) * 100 : 0;
     animateMetric('glb-occupied', pctOccupiedPhysical, true);
-    
+
     animateMetric('glb-idle', realIdleCount);
 
     // --- KPIS GOV (Baseado em Procedimentos) ---
     const pctRegGlobal = (totalReg / validBaseGov) * 100;
-    
+
     animateMetric('kpi-60-val', pctRegGlobal, true);
     document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
 
@@ -1322,15 +1411,15 @@ function updateKPIs() {
 // --- PDF: TAMBÉM AJUSTADO ---
 function generateDashboardPDF() {
     const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
-    
+
     let stats = DASH_CACHE[monthVal];
     if (!stats) {
         recalculateMonthCache(monthVal);
         stats = DASH_CACHE[monthVal];
     }
-    
+
     const { total, occupied, counts } = stats;
-    
+
     // Cálculos
     const totalMunicipal = counts.Municipal.Total;
     const totalReg = counts.Regulado.Total;
@@ -1340,7 +1429,7 @@ function generateDashboardPDF() {
 
     const realIdleCount = total - occupied;
     const pctOccupied = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
-    
+
     const pctRegGlobal = (totalReg / validBase * 100).toFixed(1);
     const pctIntGlobal = (totalInt / validBase * 100).toFixed(1);
 
@@ -1419,11 +1508,11 @@ function generateDashboardPDF() {
     `;
 
     const opt = {
-        margin:       10,
-        filename:     `Relatorio_Gov_${monthVal}.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2 },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        margin: 10,
+        filename: `Relatorio_Gov_${monthVal}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
     setLoading(true);
@@ -1502,7 +1591,7 @@ function exportDailyReport() {
     const headers = ["Data", "Hora", "Unidade", "Sala", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "Detalhe"];
     const rows = slots.map(s => {
         return [
-            key, s.time, s.location, s.room, s.status, s.patient, s.record, s.contract, 
+            key, s.time, s.location, s.room, s.status, s.patient, s.record, s.contract,
             (s.regulated ? 'SIM' : 'NÃO'), s.doctor, s.procedure, s.detail
         ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
     });
