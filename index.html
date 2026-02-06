@@ -78,16 +78,26 @@
                     </button>
                 </div>
 
-                <div style="margin-top:8px; display:flex; justify-content:center;">
+                <div style="margin-top:8px; display:flex; justify-content:center; gap:8px;">
                     <button class="view-btn" onclick="exportDailyReport()"
-                        style="display:flex; align-items:center; gap:6px; font-size:0.8rem; background:#f0fdf4; color:#166534; border:1px solid #bbf7d0">
+                        style="display:flex; align-items:center; gap:6px; font-size:0.8rem; background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; flex:1; justify-content:center;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                             <polyline points="7 10 12 15 17 10"></polyline>
                             <line x1="12" y1="15" x2="12" y2="3"></line>
                         </svg>
-                        Exportar Relatório
+                        Exportar
+                    </button>
+                    <button id="btn-manual-refresh" class="view-btn" onclick="refreshData()"
+                        style="display:flex; align-items:center; gap:6px; font-size:0.8rem; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-weight:600;"
+                        title="Atualizar Agenda">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M23 4v6h-6"></path>
+                            <path d="M1 20v-6h6"></path>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
                     </button>
                 </div>
             </div>
@@ -511,7 +521,7 @@
 
                 <div class="modal-footer">
                     <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-                    <div id="action-buttons-area">
+                    <div id="action-buttons-area" style="display:flex; gap:12px">
                         <button class="btn btn-primary" onclick="confirmBookingFromModal()">Confirmar</button>
                     </div>
                 </div>

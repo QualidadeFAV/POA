@@ -24,6 +24,10 @@ let currentDateKey = null;
 // FLATPICKR INSTANCE
 let fpInstance = null;
 
+// --- ESTADO & CLIPBOARD (NOVO) ---
+let clipboardPatient = null;
+let isMoveMode = false;
+
 // --- CONTROLE DE SESSÃO ---
 let currentUserToken = null;
 let currentUserRole = null;
@@ -491,6 +495,7 @@ async function fetchRemoteData(dateKey, isBackground = false) {
 }
 
 // 4. SINCRONIZAR MÊS INTEIRO
+// 4. SINCRONIZAR MÊS INTEIRO
 async function syncMonthData(baseDateKey) {
     if (!baseDateKey) return;
 
@@ -506,22 +511,36 @@ async function syncMonthData(baseDateKey) {
     console.log(`Buscando mês inteiro: ${monthKey}`);
 
     try {
+        // SNAPSHOT ANTES DO UPDATE (Para evitar flash se dados forem iguais)
+        const preUpdateHash = JSON.stringify(appointments[selectedDateKey] || []);
+
         const response = await fetch(`${API_URL}?month=${monthKey}`, { redirect: "follow" });
         const data = await response.json();
 
         if (data.error) throw new Error(data.error);
 
+        // Limpeza estratégica: remove chaves do mês mas NÃO ACESSA DOM
         Object.keys(appointments).forEach(k => {
             if (k.startsWith(monthKey)) delete appointments[k];
         });
 
-        processRawData(data);
+        processRawData(data); // Repopula global 'appointments'
 
         if (!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
         DASH_CACHE[monthKey].loaded = true;
 
         if (selectedDateKey.startsWith(monthKey)) {
-            renderSlotsList();
+            // SNAPSHOT DEPOIS DO UPDATE
+            const postUpdateHash = JSON.stringify(appointments[selectedDateKey] || []);
+
+            // Só re-renderiza se houve alteração real nos dados do dia visualizado
+            if (preUpdateHash !== postUpdateHash) {
+                renderSlotsList();
+            } else {
+                console.log("Dados do dia idênticos. Skip render.");
+            }
+
+            // Admin Table e KPI sempre atualizam pois podem afetar outros dias/visões
             if (currentView === 'admin') renderAdminTable();
             updateKPIs();
         }
@@ -756,6 +775,10 @@ function updateSidebarDate() {
         fpInstance.setDate(selectedDateKey, false); // false = não disparar onChange
     }
 
+    if (isMoveMode && clipboardPatient) {
+        showToast("Modo de Realocação Ativo: Selecione o novo destino.", "warning");
+    }
+
     document.getElementById('room-filter').value = 'ALL';
     document.getElementById('location-filter').value = 'ALL';
 
@@ -773,6 +796,77 @@ function updateSidebarDate() {
             setLoading(false);
         });
     }
+}
+
+// ATUALIZAÇÃO MANUAL (SEM POLLLING)
+async function refreshData() {
+    // 1. Guarda estado dos filtros (já estão no DOM, mas garantindo)
+    // 2. Chama sync forçado (invalidate cache se quiser, mas syncMonthData ja faz fetch remoto)
+
+    const btn = document.getElementById('btn-manual-refresh');
+    if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'wait';
+        // Opcional: Animar ícone
+        const icon = btn.querySelector('svg');
+        if (icon) icon.style.animation = 'spin 1s linear infinite';
+    }
+
+    try {
+        // Invalida cache do mês atual para forçar novo fetch
+        const monthKey = selectedDateKey.substring(0, 7);
+        if (DASH_CACHE[monthKey]) DASH_CACHE[monthKey].loaded = false;
+
+        setLoading(true, false);
+        await syncMonthData(selectedDateKey); // Busca dados frescos
+
+        // 3. Renderiza mantendo filtros
+        renderSlotsList();
+        updateKPIs();
+        updateCalendarMarkers();
+
+        showToast("Agenda atualizada.", "success");
+    } catch (error) {
+        console.error("Erro ao atualizar:", error);
+        showToast("Falha na atualização.", "error");
+    } finally {
+        setLoading(false);
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            const icon = btn.querySelector('svg');
+            if (icon) icon.style.animation = 'none';
+        }
+    }
+}
+
+// --- VERIFICAÇÃO DE DISPONIBILIDADE (ANTI-COLISÃO) ---
+async function verifySlotAvailability(slotId, isBackground = false) {
+    // Para ser robusto com 15 users, o ideal seria um endpoint específico 'checkSlot'.
+    // Como estamos usando Sheets/GET geral, o melhor é forçar um refresh silencioso da data/mês 
+    // se quisermos certeza absoluta, OU confiar no 'syncMonthData' se ele foi chamado recentemente.
+    // Pela regra de negócio "Segurança no Clique", vamos fazer um fetch pontual dos dados atuais
+    // para garantir que 'appointments' esteja fresco.
+
+    // Invalida cache propositalmente
+    const monthKey = selectedDateKey.substring(0, 7);
+    if (DASH_CACHE[monthKey]) DASH_CACHE[monthKey].loaded = false;
+
+    // Se background, cursor wait mas NÃO blocking (se quiser) ou loading suave do botão
+    setLoading(true, !isBackground);
+    await syncMonthData(selectedDateKey);
+    setLoading(false);
+
+    // Busca novamente o slot na memória atualizada
+    let foundSlot = null;
+    if (appointments[selectedDateKey]) {
+        foundSlot = appointments[selectedDateKey].find(s => String(s.id) === String(slotId));
+    }
+
+    if (!foundSlot) return null; // Slot sumiu (excluido?)
+    return foundSlot;
 }
 
 function changeDate(delta) {
@@ -795,8 +889,45 @@ function handleSlotClick(slot, key) {
     renderSlotsList();
 
     if (currentView === 'booking') {
-        openBookingModal(slot, key, slot.status === 'OCUPADO');
+        // Se estiver em modo Move, verifica compatibilidade básica
+        if (slot.status === 'LIVRE') {
+            handleVerifyAndOpen(slot);
+        } else {
+            // Se ocupado, abre modal de edição
+            openBookingModal(slot, key);
+        }
     }
+}
+
+async function handleVerifyAndOpen(slot) {
+    // 1. OTIMISTA: Abre o modal IMEDIATAMENTE
+    openBookingModal(slot, selectedDateKey);
+
+    // 2. VERIFICAÇÃO EM BACKGROUND
+    const modalTitle = document.getElementById('msg-title');
+    const originalTitle = modalTitle ? modalTitle.innerText : 'Agendar';
+    if (modalTitle) modalTitle.innerText = 'Agendar (Verificando...)';
+
+    const FRESH_SLOT = await verifySlotAvailability(slot.id, true); // Background = true
+
+    if (modalTitle) modalTitle.innerText = originalTitle;
+
+    // 3. SE CONFIRMAR CONFLITO, FECHA E AVISA
+    if (!FRESH_SLOT) {
+        closeModal();
+        showToast("Vaga não encontrada ou excluída.", "error");
+        renderSlotsList(); // Refresh
+        return;
+    }
+
+    if (FRESH_SLOT.status !== 'LIVRE') {
+        closeModal();
+        showMessageModal("Vaga Ocupada", "Esta vaga acabou de ser ocupada por outro usuário.", "alert");
+        renderSlotsList(); // Já atualizou via verifySlotAvailability
+        return;
+    }
+
+    // Se ainda está aberto, atualiza dados (caso algo sutil tenha mudado) e segue a vida
 }
 
 function updateFilterOptions() {
@@ -832,22 +963,29 @@ function renderSlotsList() {
     const container = document.getElementById('slots-list-container');
     container.innerHTML = '';
 
-    let slots = appointments[selectedDateKey] || [];
+    const currentDateSlots = appointments[selectedDateKey] || [];
 
+    // FILTRAGEM SEGURA (Estado Mantido)
     const locFilter = document.getElementById('location-filter').value;
     const roomFilter = document.getElementById('room-filter').value;
     const shiftFilter = document.getElementById('shift-filter').value;
 
-    if (locFilter !== 'ALL') slots = slots.filter(s => (s.location || 'Iputinga') === locFilter);
-    if (roomFilter !== 'ALL') slots = slots.filter(s => String(s.room) === String(roomFilter));
+    let slots = currentDateSlots.filter(s => {
+        // Excluir tecnicamente os 'EXCLUIDO' se vierem do backend
+        if (String(s.status).toUpperCase() === 'EXCLUIDO') return false;
 
-    if (shiftFilter !== 'ALL') {
-        slots = slots.filter(s => {
-            if (shiftFilter === 'MANHA') return s.time <= '11:59';
-            if (shiftFilter === 'TARDE') return s.time >= '12:00';
-            return true;
-        });
-    }
+        let pass = true;
+        if (locFilter !== 'ALL' && s.location !== locFilter) pass = false;
+        if (roomFilter !== 'ALL' && String(s.room) !== String(roomFilter)) pass = false;
+
+        // Filtro de turno simples baseado na hora
+        if (shiftFilter !== 'ALL') {
+            const h = parseInt(s.time.split(':')[0]);
+            if (shiftFilter === 'MANHA' && h >= 13) pass = false;
+            if (shiftFilter === 'TARDE' && h < 13) pass = false;
+        }
+        return pass;
+    });
 
     slots.sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -857,11 +995,9 @@ function renderSlotsList() {
 
     if (slots.length === 0) {
         container.innerHTML = `
-        <div style="text-align:center; color:#64748b; padding:40px; display:flex; flex-direction:column; align-items:center; gap:16px">
-            <div style="background:#f1f5f9; padding:16px; border-radius:50%">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            </div>
-            <div>Sem agendas neste dia.</div>
+        <div style="padding:40px; text-align:center; color:#94a3b8;">
+            <div style="font-size:3rem; margin-bottom:16px; opacity:0.3">📭</div>
+            <div>Nenhuma vaga encontrada para os filtros.</div>
         </div>`;
         return;
     }
@@ -908,7 +1044,7 @@ function renderSlotsList() {
             }
 
             mainInfo += `
-            <div style="font-size:0.75rem; color:var(--text-light); margin-top:2px; font-weight:600; color:#0284c7">${procDisplay}</div>
+            <div style="font-size:0.75rem; color:#0284c7; margin-top:2px; font-weight:600">${procDisplay}</div>
             <div class="slot-detail-box">
                 <div class="detail-patient">${slot.patient}</div>
                 <div style="font-size:0.75rem; color:var(--text-light)">Pront: ${slot.record || '?'}</div>
@@ -1185,56 +1321,141 @@ function deleteSlot(id) {
     });
 }
 
-// --- MODAL DE AGENDAMENTO E LOGICA DE PROCEDIMENTOS ---
+// --- MODAL DE AGENDAMENTO E EDIÇÃO ---
+function openBookingModal(slot, dateKey) {
+    document.getElementById('booking-modal').classList.add('open');
+    document.getElementById('msg-title').innerText = 'Agendar';
 
-function openBookingModal(slot, key, isEdit = false) {
-    const modal = document.getElementById('booking-modal');
-
-    document.getElementById('bk-record').value = slot.record || '';
-    document.getElementById('bk-patient').value = slot.patient || '';
-    document.getElementById('bk-contract').value = slot.contract || '';
-    document.getElementById('bk-detail').value = slot.detail || '';
-    document.getElementById('bk-eye').value = slot.eye || '';
-
-    // CARREGA A ESPECIALIDADE (CATEGORIA DA VAGA) NO CAMPO FIXO
-    document.getElementById('bk-specialty').value = slot.specialty || '';
+    // Preenche info do cabeçalho
+    document.getElementById('modal-slot-info').innerHTML = `
+        DATA: <b>${dateKey.split('-').reverse().join('/')}</b> • 
+        HORA: <b>${slot.time}</b> • 
+        SALA: <b>${slot.room}</b>
+    `;
 
     document.getElementById('selected-slot-id').value = slot.id;
+    document.getElementById('bk-specialty').value = slot.specialty || '';
 
-    // --- POPULAR PROCEDIMENTOS ---
     const container = document.getElementById('procedures-container');
     container.innerHTML = '';
 
-    const procs = getProceduresFromSlot(slot);
-
-    // ATUALIZAÇÃO: Se a vaga estiver LIVRE, ignoramos o procedimento padrão (ex: CATARATA)
-    // e mostramos uma linha vazia para o usuário digitar.
-    if (slot.status === 'LIVRE') {
-        addProcedureRow('', true);
-    } else {
-        if (procs.length === 0) addProcedureRow('', true);
-        else procs.forEach(p => addProcedureRow(p.name, p.regulated));
-    }
-
-    // Fallback de segurança
-    if (container.children.length === 0) addProcedureRow('', true);
-
-    const dateFmt = `${slot.date.split('-')[2]}/${slot.date.split('-')[1]}`;
-    document.getElementById('modal-slot-info').innerText = `${dateFmt} • ${slot.time} • ${slot.doctor}`;
-
-    document.getElementById('warning-box').style.display = 'none';
-
     const btnArea = document.getElementById('action-buttons-area');
-    if (isEdit) {
-        btnArea.innerHTML = `<button class="btn btn-danger" onclick="cancelSlotBooking()">Liberar Vaga</button> <button class="btn btn-primary" onclick="confirmBookingFromModal()">Salvar Alterações</button>`;
+    btnArea.innerHTML = ''; // Limpa botões
+
+    // --- MODO: VAGA OCUPADA (EDIÇÃO/REALOCAÇÃO) ---
+    if (slot.status === 'OCUPADO') {
+        document.getElementById('bk-patient').value = slot.patient || '';
+        document.getElementById('bk-record').value = slot.record || '';
+        document.getElementById('bk-contract').value = slot.contract || '';
+        document.getElementById('bk-detail').value = slot.detail || '';
+        document.getElementById('bk-eye').value = slot.eye || '';
+
+        // Parse procedimentos salvos
+        try {
+            if (slot.procedure) {
+                const plist = JSON.parse(slot.procedure);
+                if (Array.isArray(plist)) {
+                    plist.forEach(p => addProcedureRow(p.name, p.regulated));
+                }
+            }
+        } catch (e) {
+            // Se falhar parse (formato antigo?), tenta adicionar como string única
+            if (slot.procedure) addProcedureRow(slot.procedure, slot.regulated);
+        }
+
+        // Botão de Realocação
+        const moveBtn = document.createElement('button');
+        moveBtn.className = 'btn btn-ghost';
+        moveBtn.style.color = '#d97706'; // Amber
+        moveBtn.style.border = '1px solid #fcd34d';
+        moveBtn.innerHTML = `
+            <svg width="16" height="16" viewsBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+            Realocar
+        `;
+        moveBtn.onclick = () => initMovePatient(slot);
+        btnArea.appendChild(moveBtn);
+
+        // Botão de Cancelar/Liberar
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-danger';
+        cancelBtn.innerText = 'Liberar Vaga';
+        cancelBtn.onclick = cancelSlotBooking;
+        btnArea.appendChild(cancelBtn);
+
+        // Botão Salvar Edição
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.innerText = 'Salvar Alterações';
+        saveBtn.onclick = confirmBookingFromModal;
+        btnArea.appendChild(saveBtn);
+
+        // --- MODO: VAGA LIVRE (DESTINO DE REALOCAÇÃO OU NOVO) ---
     } else {
-        btnArea.innerHTML = `<button class="btn btn-primary" onclick="confirmBookingFromModal()">Confirmar</button>`;
+        // Se estamos em modo de realocação, preenche com dados do clipboard
+        if (isMoveMode && clipboardPatient) {
+            document.getElementById('bk-patient').value = clipboardPatient.patient;
+            document.getElementById('bk-record').value = clipboardPatient.record;
+            document.getElementById('bk-contract').value = clipboardPatient.contract;
+            document.getElementById('bk-detail').value = clipboardPatient.detail;
+            document.getElementById('bk-eye').value = clipboardPatient.eye;
+
+            if (clipboardPatient.procedures && Array.isArray(clipboardPatient.procedures)) {
+                clipboardPatient.procedures.forEach(p => addProcedureRow(p.name, p.regulated));
+            } else {
+                addProcedureRow(); // Default
+            }
+
+            const confirmMoveBtn = document.createElement('button');
+            confirmMoveBtn.className = 'btn btn-primary';
+            confirmMoveBtn.style.background = '#d97706'; // Amber
+            confirmMoveBtn.innerText = 'Confirmar Realocação';
+            confirmMoveBtn.onclick = confirmBookingFromModal; // Reusa lógica com flag
+            btnArea.appendChild(confirmMoveBtn);
+
+            showToast("Dados do paciente importados. Confirme para finalizar.", "info");
+
+        } else {
+            // Limpa campos para novo agendamento
+            document.getElementById('bk-patient').value = '';
+            document.getElementById('bk-record').value = '';
+            document.getElementById('bk-contract').value = '';
+            document.getElementById('bk-detail').value = '';
+            document.getElementById('bk-eye').value = '';
+            addProcedureRow(); // Linha vazia inicial
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'btn btn-primary';
+            confirmBtn.innerText = 'Confirmar';
+            confirmBtn.onclick = confirmBookingFromModal;
+            btnArea.appendChild(confirmBtn);
+        }
     }
+}
 
-    modal.classList.add('open');
+function initMovePatient(slot) {
+    // 1. Copia dados
+    let procData = [];
+    try { procData = JSON.parse(slot.procedure); } catch (e) { }
 
-    // Aplica regra de contrato (bloqueia checkboxes se for municipal)
-    handleContractChange();
+    clipboardPatient = {
+        originId: slot.id,
+        patient: slot.patient,
+        record: slot.record,
+        contract: slot.contract,
+        detail: slot.detail,
+        eye: slot.eye,
+        procedures: procData,
+        regulated: slot.regulated
+    };
+
+    isMoveMode = true;
+    closeModal();
+
+    // Feedback visual persistente (Toast longo ou Modal informativo)
+    showToast("📋 Paciente copiado! Selecione agora a NOVA vaga disponível.", "warning");
+
+    // Opcional: Destacar UI indicando modo move (pode mudar cor do fundo ou algo assim)
+    document.querySelector('.listing-column').style.borderLeft = "4px solid #d97706";
 }
 
 function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
@@ -1386,9 +1607,44 @@ function confirmBookingFromModal() {
             currentUserToken = null;
             currentUserRole = null;
 
-            sendUpdateToSheet(payload).then(success => {
+            sendUpdateToSheet(payload).then(async (success) => {
                 if (!success) {
-                    showToast("Falha ao salvar no servidor.", "error");
+                    showToast("CONFLITO: Vaga já ocupada ou erro de servidor.", "error");
+                    await refreshData(); // Auto refresh em conflito
+                } else {
+                    // SE SUCESSO E ESTAMOS EM MODO MOVE, LIBERA A ORIGEM
+                    if (isMoveMode && clipboardPatient && clipboardPatient.originId) {
+                        const originId = clipboardPatient.originId;
+                        // Envia liberação da antiga
+                        await sendUpdateToSheet({
+                            action: "update",
+                            id: originId,
+                            status: 'LIVRE',
+                            patient: '', record: '', contract: '', regulated: null,
+                            procedure: '', detail: '', eye: ''
+                        });
+
+                        // Limpa estado local da origem
+                        Object.keys(appointments).forEach(k => {
+                            const idx = appointments[k].findIndex(s => String(s.id) === String(originId));
+                            if (idx !== -1) {
+                                appointments[k][idx].status = 'LIVRE';
+                                appointments[k][idx].patient = '';
+                                // ... limpar resto se quiser visualmente perfeito,
+                                // mas o refresh ou render ja resolve
+                            }
+                        });
+
+                        showToast("Realocação concluída com sucesso!", "success");
+
+                        // Reset flags
+                        isMoveMode = false;
+                        clipboardPatient = null;
+                        document.querySelector('.listing-column').style.borderLeft = "none";
+
+                        // Refresh final para garantir consistencia visual
+                        renderSlotsList();
+                    }
                 }
             });
         });
