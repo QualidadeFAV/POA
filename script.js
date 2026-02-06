@@ -1015,9 +1015,8 @@ function renderSlotsList() {
         let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
         let doctorName = slot.doctor ? `<b>${slot.doctor.split(' ')[0]} ${slot.doctor.split(' ')[1] || ''}</b>` : 'Sem Médico';
 
-        const dayPart = slot.date.split('-')[2];
-        const monthPart = slot.date.split('-')[1];
-        const formattedDate = `${dayPart}/${monthPart}`;
+        const parts = slot.date.split('-');
+        const formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
 
         let mainInfo = `
         <div style="flex:1">
@@ -1247,12 +1246,25 @@ async function processBatchDelete(ids) {
     const msgBody = document.getElementById('msg-body');
 
     let successCount = 0;
+    let consecutiveErrors = 0;
     const total = ids.length;
 
     for (let i = 0; i < total; i++) {
+        // BREAK CIRCUIT: Se houver muitas falhas seguidas, aborta para proteger conta
+        if (consecutiveErrors >= 3) {
+            closeMessageModal();
+            showToast("Operação pausada: Instabilidade na rede detectada.", "error");
+            break;
+        }
+
         const id = ids[i];
-        if (msgBody) msgBody.innerText = `Excluindo ${i + 1} de ${total}...`;
-        await new Promise(r => setTimeout(r, 20));
+        if (msgBody) {
+            const pct = Math.round(((i + 1) / total) * 100);
+            msgBody.innerText = `Excluindo ${i + 1} de ${total} (${pct}%)...`;
+        }
+
+        // THROTTLE: Aumentado para 400ms (aprox 2.5 req/s) para evitar "Too Many Requests" do Google
+        await new Promise(r => setTimeout(r, 400));
 
         try {
             const response = await fetch(API_URL, {
@@ -1264,12 +1276,19 @@ async function processBatchDelete(ids) {
             const result = await response.json();
             if (result.status === 'success') {
                 successCount++;
+                consecutiveErrors = 0; // Reset erro count
 
                 Object.keys(appointments).forEach(key => {
                     appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
                 });
+            } else {
+                console.warn("Falha ao excluir item:", result);
+                consecutiveErrors++;
             }
-        } catch (e) { console.error("Erro delete:", e); }
+        } catch (e) {
+            console.error("Erro delete:", e);
+            consecutiveErrors++;
+        }
     }
 
     recalculateMonthCache(selectedDateKey.substring(0, 7));
@@ -1279,7 +1298,11 @@ async function processBatchDelete(ids) {
     renderAdminTable();
     updateKPIs();
 
-    showToast(`${successCount} vagas excluídas.`, 'success');
+    if (successCount === total) {
+        showToast(`${successCount} vagas excluídas com sucesso.`, 'success');
+    } else {
+        showToast(`${successCount} de ${total} vagas excluídas.`, 'warning');
+    }
 }
 
 function deleteSlot(id) {
