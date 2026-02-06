@@ -94,9 +94,13 @@ const SPECIALTY_PROCEDURES = {
 };
 
 // --- INDICADOR DE CARREGAMENTO (CURSOR) ---
-function setLoading(isLoading) {
+function setLoading(isLoading, isBlocking = false) {
     const body = document.body;
-    body.style.cursor = isLoading ? 'wait' : 'default';
+    if (isLoading && isBlocking) {
+        body.style.cursor = 'wait';
+    } else {
+        body.style.cursor = 'default';
+    }
 }
 
 // --- NOTIFICAÇÃO TOAST (CONFIRMAÇÃO VISUAL) ---
@@ -760,7 +764,10 @@ function updateSidebarDate() {
     if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
         renderSlotsList();
     } else {
-        setLoading(true);
+        // Carregamento de navegação não precisa bloquear cursor totalmente, mas ok ser breve.
+        // Se quiser bloquear: setLoading(true, true);
+        // Se quiser suave: setLoading(true, false);
+        setLoading(true, false);
         syncMonthData(selectedDateKey).then(() => {
             renderSlotsList();
             setLoading(false);
@@ -1154,7 +1161,7 @@ function deleteSlot(id) {
 
     showMessageModal('Excluir', msg, 'confirm', async () => {
         closeMessageModal();
-        setLoading(true);
+        setLoading(true, true); // Bloqueante pois é uma ação destrutiva
 
         const success = await sendUpdateToSheet({ action: "delete", id: id });
         if (success) {
@@ -1677,9 +1684,19 @@ function exportDailyReport() {
 
     const headers = ["Data", "Hora", "Unidade", "Sala", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "Detalhe"];
     const rows = slots.map(s => {
+        let procFormatted = s.procedure;
+        try {
+            if (s.procedure && (s.procedure.startsWith('[') || s.procedure.startsWith('{'))) {
+                const parsed = JSON.parse(s.procedure);
+                if (Array.isArray(parsed)) {
+                    procFormatted = parsed.map(p => `${p.name} (${p.regulated ? 'Reg' : 'Int'})`).join('; ');
+                }
+            }
+        } catch (e) { console.warn("Erro ao formatar procedimento export:", e); }
+
         return [
             key, s.time, s.location, s.room, s.status, s.patient, s.record, s.contract,
-            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, s.procedure, s.detail
+            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted, s.detail
         ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
     });
 
