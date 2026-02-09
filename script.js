@@ -43,7 +43,15 @@ const SPECIALTY_PROCEDURES = {
     "RETINA": [
         "Capsulectomia Posterior Cirúrgica",
         "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular"
+        "Reposicionamento de Lente Intraocular",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ],
     "CATARATA": [
         "Facetomia com Implante de Lente Intra-Ocular",
@@ -59,13 +67,29 @@ const SPECIALTY_PROCEDURES = {
         "Trabeculectomia",
         "Implante Secundário de Lentre Intra-Ocular-Lio",
         "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
         "Vitrectomia Anterior"
     ],
     "CORNEA": [
         "Implante Intra-Estromal",
         "Implante Secundário de Lentre Intra-Ocular-Lio",
         "Reposicionamento de Lente Intraocular",
-        "Recobrimento Conjuntival"
+        "Recobrimento Conjuntival",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ],
     "PLASTICA": [
         "Correção Cirúrgica de Entropio e Ectropio",
@@ -75,11 +99,27 @@ const SPECIALTY_PROCEDURES = {
         "Exérese de Calazio e outras Pequenas Lesões",
         "Reconstituição de Canal Lacrimal",
         "Reconstituição de Fornix Conjuntival",
-        "Tratamento de Ptose Palpebral"
+        "Tratamento de Ptose Palpebral",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ],
     "ESTRABISMO": [
         "Correção Cirúrgica de Estrabismo (Acima de 02 Musculos)",
-        "Correção Cirúrgica de Estrabismo (Até de 02 Musculos)"
+        "Correção Cirúrgica de Estrabismo (Até de 02 Musculos)",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ],
     "LASER": [
         "Setorial",
@@ -89,10 +129,26 @@ const SPECIALTY_PROCEDURES = {
         "Laser Focal",
         "Panfoto",
         "Capsulotomia",
-        "Trabeculoplastia"
+        "Trabeculoplastia",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ],
     "GERAL": [
-        "Recobrimento Conjuntival"
+        "Recobrimento Conjuntival",
+        "Facetomia com Implante de Lente Intra-Ocular",
+        "Facetomia sem Implante de Lente Intra-Ocular",
+        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
+        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
+        "Capsulectomia Posterior Cirúrgica",
+        "Implante Secundário de Lentre Intra-Ocular-Lio",
+        "Reposicionamento de Lente Intraocular",
+        "Vitrectomia Anterior"
     ]
 };
 
@@ -750,6 +806,7 @@ async function initData() {
         setTimeout(() => { splash.remove(); }, 500);
     }
 
+    updateFilterOptions(); // Atualiza filtros após carga inicial
     renderSlotsList();
     updateKPIs();
     updateCalendarMarkers(); // Atualiza bolinhas iniciais
@@ -808,6 +865,7 @@ function updateSidebarDate() {
     const monthKey = selectedDateKey.substring(0, 7);
 
     if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
+        updateFilterOptions(); // Garante filtros sincronizados ao trocar dia (cache) 
         renderSlotsList();
     } else {
         // Carregamento de navegação não precisa bloquear cursor totalmente, mas ok ser breve.
@@ -815,6 +873,7 @@ function updateSidebarDate() {
         // Se quiser suave: setLoading(true, false);
         setLoading(true, false);
         syncMonthData(selectedDateKey).then(() => {
+            updateFilterOptions(); // Garante filtros sincronizados após sync
             renderSlotsList();
             setLoading(false);
         });
@@ -845,6 +904,7 @@ async function refreshData() {
         await syncMonthData(selectedDateKey); // Busca dados frescos
 
         // 3. Renderiza mantendo filtros
+        updateFilterOptions(); // Recalcula opções disponíveis
         renderSlotsList();
         updateKPIs();
         updateCalendarMarkers();
@@ -957,33 +1017,49 @@ async function handleVerifyAndOpen(slot) {
 function updateFilterOptions() {
     const slots = appointments[selectedDateKey] || [];
 
-    const rooms = [...new Set(slots.map(s => s.room))].sort();
-    const locations = [...new Set(slots.map(s => s.location || 'Iputinga'))].sort();
+    const rooms = [...new Set(slots.map(s => s.room))].filter(r => r).sort();
+    const locations = [...new Set(slots.map(s => s.location || 'Iputinga'))].filter(l => l).sort();
 
     const roomSelect = document.getElementById('room-filter');
     const locSelect = document.getElementById('location-filter');
 
-    if (roomSelect.options.length <= 1) {
-        roomSelect.innerHTML = '<option value="ALL">Todas Salas</option>';
-        rooms.forEach(r => {
-            const opt = document.createElement('option');
-            opt.value = r; opt.textContent = r; roomSelect.appendChild(opt);
-        });
+    // Save current values to restore if possible
+    const currentRoom = roomSelect.value;
+    const currentLoc = locSelect.value;
+
+    roomSelect.innerHTML = '<option value="ALL">Todas Salas</option>';
+    rooms.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r;
+        opt.textContent = r;
+        roomSelect.appendChild(opt);
+    });
+    // Restore selection or default to ALL
+    if (rooms.includes(currentRoom)) {
+        roomSelect.value = currentRoom;
+    } else {
+        roomSelect.value = 'ALL';
     }
 
-    if (locSelect.options.length <= 1) {
-        locSelect.innerHTML = '<option value="ALL">Todas Unidades</option>';
-        locations.forEach(l => {
-            const opt = document.createElement('option');
-            opt.value = l; opt.textContent = l; locSelect.appendChild(opt);
-        });
+    locSelect.innerHTML = '<option value="ALL">Todas Unidades</option>';
+    locations.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l;
+        opt.textContent = l;
+        locSelect.appendChild(opt);
+    });
+    // Restore selection or default to ALL
+    if (locations.includes(currentLoc)) {
+        locSelect.value = currentLoc;
+    } else {
+        locSelect.value = 'ALL';
     }
 }
 
 function applyFilters() { renderSlotsList(); }
 
 function renderSlotsList() {
-    updateFilterOptions();
+    // updateFilterOptions(); // REMOVIDO: Filtros devem ser atualizados apenas ao trocar dia/dados
     const container = document.getElementById('slots-list-container');
     container.innerHTML = '';
 
