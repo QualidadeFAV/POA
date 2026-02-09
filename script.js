@@ -24,9 +24,8 @@ let currentDateKey = null;
 // FLATPICKR INSTANCE
 let fpInstance = null;
 
-// --- ESTADO & CLIPBOARD (NOVO) ---
-let clipboardPatient = null;
-let isMoveMode = false;
+// --- ESTADO ---
+
 
 // --- CONTROLE DE SESSÃO ---
 let currentUserToken = null;
@@ -139,6 +138,14 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
+// --- FORMATADOR DE DATA BR ---
+function formatDateBR(dateString) {
+    if (!dateString) return '';
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString; // Fallback
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
 // --- FUNÇÃO DE ANIMAÇÃO (NUMBERS GO UP) ---
 function animateMetric(elementId, targetValue, isPercentage = false) {
     const element = document.getElementById(elementId);
@@ -247,15 +254,24 @@ function addProcedureRow(name = '', isRegulated = true) {
     const contract = document.getElementById('bk-contract').value;
     const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
 
-    // Verifica Especialidade da Vaga
-    const rawSpecialty = document.getElementById('bk-specialty').value || "";
+
+
+    // Verifica Especialidade da Vaga - CORREÇÃO: Trim para remover espaços fantasmas
+    const rawSpecialty = (document.getElementById('bk-specialty').value || "").trim();
+
     // Normaliza para chave (upper e sem acentos básicos se necessário, aqui assumindo match direto ou upper)
     // Mapeamento simples de segurança para acentos
-    const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E' };
+    const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E', 'À': 'A' };
     let normalizedSpec = rawSpecialty.toUpperCase().replace(/[ÇÃÕÁÉÍÓÚÂÊ]/g, c => mapAccents[c] || c);
 
     // Fallback: Se for "LASERS" (plural), converte para "LASER"
     if (normalizedSpec === 'LASERS') normalizedSpec = 'LASER';
+
+    // SMART MATCH: Se não encontrar chave exata, tenta a primeira palavra (ex: "RETINA CIRURGICA" -> "RETINA")
+    if (!SPECIALTY_PROCEDURES[normalizedSpec]) {
+        const firstPart = normalizedSpec.split(' ')[0];
+        if (SPECIALTY_PROCEDURES[firstPart]) normalizedSpec = firstPart;
+    }
 
     const allowedProcs = SPECIALTY_PROCEDURES[normalizedSpec];
 
@@ -437,7 +453,8 @@ function processRawData(rows, forceDateKey = null) {
                 procedure: row.procedure,
                 detail: row.detail,
                 eye: row.eye,
-                createdBy: row.created_by
+                createdBy: row.createdBy || row.created_by,
+                updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "") // Fallback para legado
             });
         } else {
             const idx = appointments[key].findIndex(s => String(s.id) === String(row.id));
@@ -452,7 +469,8 @@ function processRawData(rows, forceDateKey = null) {
                     procedure: row.procedure,
                     detail: row.detail,
                     eye: row.eye,
-                    createdBy: row.created_by
+                    createdBy: row.createdBy || row.created_by,
+                    updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "") // Fallback para legado
                 };
             }
         }
@@ -556,24 +574,29 @@ async function syncMonthData(baseDateKey) {
 // 5. ENVIAR DADOS (POST)
 async function sendUpdateToSheet(payload) {
     try {
+        // MUDANÇA: Usar URLSearchParams em vez de FormData
+        // Isso garante o Content-Type: application/x-www-form-urlencoded
+        // que é o formato nativo que o e.parameter do Google Apps Script espera.
+        const params = new URLSearchParams();
+
+        for (const key in payload) {
+            if (typeof payload[key] === "object") {
+                params.append(key, JSON.stringify(payload[key]));
+            } else {
+                params.append(key, payload[key]);
+            }
+        }
+
         const response = await fetch(API_URL, {
             method: "POST",
-            redirect: "follow",
-            body: JSON.stringify(payload),
-            headers: { "Content-Type": "text/plain;charset=utf-8" }
+            body: params
         });
 
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            return true;
-        } else {
-            throw new Error(result.message || "Erro no servidor.");
-        }
+        return await response.json();
 
     } catch (error) {
         console.error("Erro no envio:", error);
-        return false;
+        return { status: "error", message: error.message };
     }
 }
 
@@ -683,7 +706,9 @@ async function initData() {
     // INICIALIZA O FLATPICKR
     fpInstance = flatpickr("#sidebar-date-picker", {
         locale: "pt",
-        dateFormat: "Y-m-d",
+        dateFormat: "Y-m-d", // Formato interno (lógica)
+        altInput: true,      // Habilita input alternativo visual
+        altFormat: "d/m/Y",  // Formato visual BR
         defaultDate: selectedDateKey,
         disableMobile: "true", // Força o tema customizado mesmo em mobile
         onChange: function (selectedDates, dateStr, instance) {
@@ -775,9 +800,7 @@ function updateSidebarDate() {
         fpInstance.setDate(selectedDateKey, false); // false = não disparar onChange
     }
 
-    if (isMoveMode && clipboardPatient) {
-        showToast("Modo de Realocação Ativo: Selecione o novo destino.", "warning");
-    }
+
 
     document.getElementById('room-filter').value = 'ALL';
     document.getElementById('location-filter').value = 'ALL';
@@ -912,18 +935,19 @@ async function handleVerifyAndOpen(slot) {
 
     if (modalTitle) modalTitle.innerText = originalTitle;
 
-    // 3. SE CONFIRMAR CONFLITO, FECHA E AVISA
+    // 3. SE CONFIRMAR CONFLITO, APENAS AVISE E ATUALIZE
     if (!FRESH_SLOT) {
         closeModal();
         showToast("Vaga não encontrada ou excluída.", "error");
-        renderSlotsList(); // Refresh
+        renderSlotsList();
         return;
     }
 
     if (FRESH_SLOT.status !== 'LIVRE') {
         closeModal();
-        showMessageModal("Vaga Ocupada", "Esta vaga acabou de ser ocupada por outro usuário.", "alert");
-        renderSlotsList(); // Já atualizou via verifySlotAvailability
+        // SIMPLIFICADO: "Vaga ocupada" e update na tela. Sem botões extras.
+        showToast("Conflito: Vaga acabou de ser ocupada.", "error");
+        renderSlotsList();
         return;
     }
 
@@ -976,6 +1000,7 @@ function renderSlotsList() {
 
         let pass = true;
         if (locFilter !== 'ALL' && s.location !== locFilter) pass = false;
+        // CORREÇÃO: Comparar String com String para evitar erro de tipo
         if (roomFilter !== 'ALL' && String(s.room) !== String(roomFilter)) pass = false;
 
         // Filtro de turno simples baseado na hora
@@ -1007,9 +1032,8 @@ function renderSlotsList() {
         item.className = 'slot-item';
         if (currentSlotId === slot.id) item.classList.add('active');
 
-        // STAGGERED ANIMATION DELAY
-        // Efeito cascata: 0.05s por item
-        item.style.animationDelay = `${index * 0.05}s`;
+        // REMOVIDO: animationDelay para evitar pisca-pisca
+        // item.style.animationDelay = `${index * 0.05}s`;
 
         let statusClass = slot.status === 'LIVRE' ? 'free' : 'booked';
         let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
@@ -1050,7 +1074,7 @@ function renderSlotsList() {
                 <div class="detail-meta"><span class="badge-kpi">${slot.contract}</span></div>
             </div>
             <div style="font-size:0.65rem; color:#94a3b8; text-align:right; margin-top:4px; font-style:italic">
-                ${slot.createdBy ? 'Agendado por: ' + slot.createdBy : ''}
+                 ${slot.updatedBy ? 'Agendado por: ' + slot.updatedBy : ''} 
             </div>
             `;
         } else {
@@ -1120,11 +1144,15 @@ function bulkCreateSlots() {
 
     showMessageModal('Processando', `Criando ${qty} vagas...`, 'loading');
 
-    const payload = { action: "create_bulk", data: slotsToSend };
+    const payload = {
+        action: "create_bulk",
+        data: slotsToSend,
+        createdBy: currentUserToken // <--- ADICIONAR ISSO
+    };
 
-    sendUpdateToSheet(payload).then(success => {
+    sendUpdateToSheet(payload).then(resp => {
         closeMessageModal();
-        if (success) {
+        if (resp && resp.status === 'success') {
             showToast(`${qty} vagas criadas!`, 'success');
 
             processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE', created_by: currentUserToken })));
@@ -1242,66 +1270,43 @@ async function deleteSelectedSlots() {
 }
 
 async function processBatchDelete(ids) {
-    showMessageModal('Processando', `Iniciando exclusão...`, 'loading');
-    const msgBody = document.getElementById('msg-body');
+    showMessageModal('Processando', `Excluindo ${ids.length} vagas...`, 'loading');
 
-    let successCount = 0;
-    let consecutiveErrors = 0;
-    const total = ids.length;
+    // STRICT TOKEN: Se não tiver token, tenta login ou usa "Anonymous" (mas o backend precisa saber)
+    // Assumindo que já está logado pois é Admin Area
 
-    for (let i = 0; i < total; i++) {
-        // BREAK CIRCUIT: Se houver muitas falhas seguidas, aborta para proteger conta
-        if (consecutiveErrors >= 3) {
-            closeMessageModal();
-            showToast("Operação pausada: Instabilidade na rede detectada.", "error");
-            break;
-        }
+    try {
+        const payload = {
+            action: "delete_bulk",
+            ids: ids,
+            createdBy: currentUserToken // Garante token na exclusão em lote
+        };
 
-        const id = ids[i];
-        if (msgBody) {
-            const pct = Math.round(((i + 1) / total) * 100);
-            msgBody.innerText = `Excluindo ${i + 1} de ${total} (${pct}%)...`;
-        }
+        // Usa sendUpdateToSheet para garantir mesmo formato (URLSearchParams)
+        const resp = await sendUpdateToSheet(payload);
 
-        // THROTTLE: Aumentado para 400ms (aprox 2.5 req/s) para evitar "Too Many Requests" do Google
-        await new Promise(r => setTimeout(r, 400));
-
-        try {
-            const response = await fetch(API_URL, {
-                method: "POST",
-                redirect: "follow",
-                body: JSON.stringify({ action: "delete", id: id }),
-                headers: { "Content-Type": "text/plain;charset=utf-8" }
+        if (resp && resp.status === 'success') {
+            // Atualiza estado local em massa
+            Object.keys(appointments).forEach(key => {
+                appointments[key] = appointments[key].filter(s => !ids.includes(String(s.id)));
             });
-            const result = await response.json();
-            if (result.status === 'success') {
-                successCount++;
-                consecutiveErrors = 0; // Reset erro count
 
-                Object.keys(appointments).forEach(key => {
-                    appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
-                });
-            } else {
-                console.warn("Falha ao excluir item:", result);
-                consecutiveErrors++;
-            }
-        } catch (e) {
-            console.error("Erro delete:", e);
-            consecutiveErrors++;
+            recalculateMonthCache(selectedDateKey.substring(0, 7));
+            closeMessageModal();
+            renderSlotsList();
+            renderAdminTable();
+            updateKPIs();
+
+            showToast(`${resp.count || ids.length} vagas excluídas com sucesso.`, 'success');
+        } else {
+            closeMessageModal();
+            showToast(`Erro ao excluir: ${resp ? resp.message : 'Resposta inválida'}`, 'error');
         }
-    }
 
-    recalculateMonthCache(selectedDateKey.substring(0, 7));
-
-    closeMessageModal();
-    renderSlotsList();
-    renderAdminTable();
-    updateKPIs();
-
-    if (successCount === total) {
-        showToast(`${successCount} vagas excluídas com sucesso.`, 'success');
-    } else {
-        showToast(`${successCount} de ${total} vagas excluídas.`, 'warning');
+    } catch (e) {
+        closeMessageModal();
+        console.error("Erro delete bulk:", e);
+        showToast("Erro de conexão ao excluir.", "error");
     }
 }
 
@@ -1322,8 +1327,12 @@ function deleteSlot(id) {
         closeMessageModal();
         setLoading(true, true); // Bloqueante pois é uma ação destrutiva
 
-        const success = await sendUpdateToSheet({ action: "delete", id: id });
-        if (success) {
+        const resp = await sendUpdateToSheet({
+            action: "delete",
+            id: id,
+            createdBy: currentUserToken // Adiciona token na exclusão individual
+        });
+        if (resp && resp.status === 'success') {
             Object.keys(appointments).forEach(key => {
                 appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
             });
@@ -1350,10 +1359,15 @@ function openBookingModal(slot, dateKey) {
     document.getElementById('msg-title').innerText = 'Agendar';
 
     // Preenche info do cabeçalho
+    // Preenche info do cabeçalho
     document.getElementById('modal-slot-info').innerHTML = `
-        DATA: <b>${dateKey.split('-').reverse().join('/')}</b> • 
-        HORA: <b>${slot.time}</b> • 
-        SALA: <b>${slot.room}</b>
+        <div style="display:flex; gap:12px; font-size: 0.9rem; align-items:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            <span>DATA: <b>${formatDateBR(dateKey)}</b></span>
+            <span style="color:#cbd5e1">|</span>
+            <span>HORA: <b>${slot.time}</b></span>
+            <span style="color:#cbd5e1">|</span>
+            <span style="overflow:hidden; text-overflow:ellipsis;">SALA: <b>${slot.room}</b></span>
+        </div>
     `;
 
     document.getElementById('selected-slot-id').value = slot.id;
@@ -1386,19 +1400,7 @@ function openBookingModal(slot, dateKey) {
             if (slot.procedure) addProcedureRow(slot.procedure, slot.regulated);
         }
 
-        // Botão de Realocação
-        const moveBtn = document.createElement('button');
-        moveBtn.className = 'btn btn-ghost';
-        moveBtn.style.color = '#d97706'; // Amber
-        moveBtn.style.border = '1px solid #fcd34d';
-        moveBtn.innerHTML = `
-            <svg width="16" height="16" viewsBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
-            Realocar
-        `;
-        moveBtn.onclick = () => initMovePatient(slot);
-        btnArea.appendChild(moveBtn);
-
-        // Botão de Cancelar/Liberar
+        // Botão de Cancelar/Liberar (REMOVIDO BOTÃO DE REALOCAR)
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn btn-danger';
         cancelBtn.innerText = 'Liberar Vaga';
@@ -1414,71 +1416,20 @@ function openBookingModal(slot, dateKey) {
 
         // --- MODO: VAGA LIVRE (DESTINO DE REALOCAÇÃO OU NOVO) ---
     } else {
-        // Se estamos em modo de realocação, preenche com dados do clipboard
-        if (isMoveMode && clipboardPatient) {
-            document.getElementById('bk-patient').value = clipboardPatient.patient;
-            document.getElementById('bk-record').value = clipboardPatient.record;
-            document.getElementById('bk-contract').value = clipboardPatient.contract;
-            document.getElementById('bk-detail').value = clipboardPatient.detail;
-            document.getElementById('bk-eye').value = clipboardPatient.eye;
+        // Limpa campos para novo agendamento
+        document.getElementById('bk-patient').value = '';
+        document.getElementById('bk-record').value = '';
+        document.getElementById('bk-contract').value = '';
+        document.getElementById('bk-detail').value = '';
+        document.getElementById('bk-eye').value = '';
+        addProcedureRow(); // Linha vazia inicial
 
-            if (clipboardPatient.procedures && Array.isArray(clipboardPatient.procedures)) {
-                clipboardPatient.procedures.forEach(p => addProcedureRow(p.name, p.regulated));
-            } else {
-                addProcedureRow(); // Default
-            }
-
-            const confirmMoveBtn = document.createElement('button');
-            confirmMoveBtn.className = 'btn btn-primary';
-            confirmMoveBtn.style.background = '#d97706'; // Amber
-            confirmMoveBtn.innerText = 'Confirmar Realocação';
-            confirmMoveBtn.onclick = confirmBookingFromModal; // Reusa lógica com flag
-            btnArea.appendChild(confirmMoveBtn);
-
-            showToast("Dados do paciente importados. Confirme para finalizar.", "info");
-
-        } else {
-            // Limpa campos para novo agendamento
-            document.getElementById('bk-patient').value = '';
-            document.getElementById('bk-record').value = '';
-            document.getElementById('bk-contract').value = '';
-            document.getElementById('bk-detail').value = '';
-            document.getElementById('bk-eye').value = '';
-            addProcedureRow(); // Linha vazia inicial
-
-            const confirmBtn = document.createElement('button');
-            confirmBtn.className = 'btn btn-primary';
-            confirmBtn.innerText = 'Confirmar';
-            confirmBtn.onclick = confirmBookingFromModal;
-            btnArea.appendChild(confirmBtn);
-        }
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'btn btn-primary';
+        confirmBtn.innerText = 'Confirmar';
+        confirmBtn.onclick = confirmBookingFromModal;
+        btnArea.appendChild(confirmBtn);
     }
-}
-
-function initMovePatient(slot) {
-    // 1. Copia dados
-    let procData = [];
-    try { procData = JSON.parse(slot.procedure); } catch (e) { }
-
-    clipboardPatient = {
-        originId: slot.id,
-        patient: slot.patient,
-        record: slot.record,
-        contract: slot.contract,
-        detail: slot.detail,
-        eye: slot.eye,
-        procedures: procData,
-        regulated: slot.regulated
-    };
-
-    isMoveMode = true;
-    closeModal();
-
-    // Feedback visual persistente (Toast longo ou Modal informativo)
-    showToast("📋 Paciente copiado! Selecione agora a NOVA vaga disponível.", "warning");
-
-    // Opcional: Destacar UI indicando modo move (pode mudar cor do fundo ou algo assim)
-    document.querySelector('.listing-column').style.borderLeft = "4px solid #d97706";
 }
 
 function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
@@ -1600,7 +1551,7 @@ function confirmBookingFromModal() {
                         procedure: procedureJSON,
                         detail: detail,
                         eye: eye,
-                        createdBy: currentUserToken
+                        createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
                     };
                 }
             });
@@ -1630,7 +1581,8 @@ function confirmBookingFromModal() {
             currentUserToken = null;
             currentUserRole = null;
 
-            sendUpdateToSheet(payload).then(async (success) => {
+            sendUpdateToSheet(payload).then(async (resp) => {
+                const success = resp && resp.status === 'success';
                 if (!success) {
                     showToast("CONFLITO: Vaga já ocupada ou erro de servidor.", "error");
                     await refreshData(); // Auto refresh em conflito
@@ -1686,7 +1638,8 @@ function cancelSlotBooking() {
                         ...appointments[dateKey][slotIndex],
                         status: 'LIVRE',
                         patient: '', record: '', contract: '', regulated: null,
-                        procedure: '', detail: '', eye: '', createdBy: currentUserToken
+                        procedure: '', detail: '', eye: '',
+                        createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
                     };
                 }
             });
@@ -1703,7 +1656,8 @@ function cancelSlotBooking() {
                 id: id,
                 status: 'LIVRE',
                 patient: '', record: '', contract: '', regulated: null,
-                procedure: '', detail: '', eye: '', createdBy: currentUserToken
+                procedure: '', detail: '', eye: '',
+                createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
             };
 
             // STRICT TOKEN: Limpa o token imediatamente
