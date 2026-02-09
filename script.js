@@ -959,9 +959,11 @@ function changeDate(delta) {
     const m = String(current.getMonth() + 1).padStart(2, '0');
     const d = String(current.getDate()).padStart(2, '0');
 
-    selectedDateKey = `${y}-${m}-${d}`;
-    document.getElementById('sidebar-date-picker').value = selectedDateKey;
-    updateSidebarDate();
+    const newKey = `${y}-${m}-${d}`;
+
+    if (fpInstance) {
+        fpInstance.setDate(newKey, true); // true = dispara onChange (chama updateSidebarDate)
+    }
 }
 
 // --- UI LISTA DE VAGAS ---
@@ -1019,13 +1021,16 @@ function updateFilterOptions() {
 
     const rooms = [...new Set(slots.map(s => s.room))].filter(r => r).sort();
     const locations = [...new Set(slots.map(s => s.location || 'Iputinga'))].filter(l => l).sort();
+    const specialties = [...new Set(slots.map(s => s.specialty))].filter(s => s).sort();
 
     const roomSelect = document.getElementById('room-filter');
     const locSelect = document.getElementById('location-filter');
+    const specSelect = document.getElementById('specialty-filter');
 
     // Save current values to restore if possible
     const currentRoom = roomSelect.value;
     const currentLoc = locSelect.value;
+    const currentSpec = specSelect ? specSelect.value : 'ALL';
 
     roomSelect.innerHTML = '<option value="ALL">Todas Salas</option>';
     rooms.forEach(r => {
@@ -1054,6 +1059,21 @@ function updateFilterOptions() {
     } else {
         locSelect.value = 'ALL';
     }
+
+    if (specSelect) {
+        specSelect.innerHTML = '<option value="ALL">Todas Especialidades</option>';
+        specialties.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s;
+            opt.textContent = s;
+            specSelect.appendChild(opt);
+        });
+        if (specialties.includes(currentSpec)) {
+            specSelect.value = currentSpec;
+        } else {
+            specSelect.value = 'ALL';
+        }
+    }
 }
 
 function applyFilters() { renderSlotsList(); }
@@ -1069,6 +1089,7 @@ function renderSlotsList() {
     const locFilter = document.getElementById('location-filter').value;
     const roomFilter = document.getElementById('room-filter').value;
     const shiftFilter = document.getElementById('shift-filter').value;
+    const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
 
     let slots = currentDateSlots.filter(s => {
         // Excluir tecnicamente os 'EXCLUIDO' se vierem do backend
@@ -1079,12 +1100,14 @@ function renderSlotsList() {
         // CORREÇÃO: Comparar String com String para evitar erro de tipo
         if (roomFilter !== 'ALL' && String(s.room) !== String(roomFilter)) pass = false;
 
-        // Filtro de turno simples baseado na hora
         if (shiftFilter !== 'ALL') {
             const h = parseInt(s.time.split(':')[0]);
             if (shiftFilter === 'MANHA' && h >= 13) pass = false;
             if (shiftFilter === 'TARDE' && h < 13) pass = false;
         }
+
+        if (specFilter !== 'ALL' && s.specialty !== specFilter) pass = false;
+
         return pass;
     });
 
@@ -1125,10 +1148,11 @@ function renderSlotsList() {
                     <span style="background:#e2e8f0; color:#475569; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-weight:600;">${formattedDate}</span>
                     <span>${slot.time}</span>
                 </div>
-                 <div class="slot-room-badge">Sala ${slot.room}</div>
+                 <div class="slot-room-badge" style="white-space:nowrap;">Sala ${slot.room}</div>
             </div>
             <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">${slot.location || 'Iputinga'}</div>
             <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:2px;">${doctorName}</div>
+            <div style="font-size:0.75rem; color:#64748b; font-weight:600; margin-top:2px; text-transform:uppercase;">${slot.specialty || '-'}</div>
         `;
 
         if (slot.status === 'OCUPADO') {
@@ -1154,7 +1178,9 @@ function renderSlotsList() {
             </div>
             `;
         } else {
-            mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
+            // Em estado LIVRE, já mostramos a especialidade acima, então remove a redundância se quiser,
+            // mas o layout padrão pede algo ali ou deixa vazio.
+            // mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
         }
 
         mainInfo += `</div>`;
