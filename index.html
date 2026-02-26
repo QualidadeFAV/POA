@@ -1672,8 +1672,8 @@ body {
 
     <script>
 // --- CONFIGURAÇÃO DA API (GOOGLE SHEETS) ---
-// IMPORTANTE: Verifique se esta URL é a da sua implantação mais recente
 const API_URL = "https://script.google.com/macros/s/AKfycbx-xQcWMi4xZaw_DfeczO9uQJozBVVrUizZxE__XE-9Ny9Jsc8_-avB0Txx4UbSeQNx/exec";
+const PROXY_URL = "https://seu-worker.cloudflare.workers.dev"; // Substitua pela URL do seu Proxy/Worker
 
 // --- DADOS GLOBAIS ---
 let appointments = {};
@@ -1723,9 +1723,38 @@ let SPECIALTY_PROCEDURES = {
     "LASER": []
 };
 
-// --- HELPER DE GET CENTRALIZADO ---
+// --- HELPER PARA CORS (JSONP) ---
+function jsonp(url) {
+    return new Promise((resolve, reject) => {
+        // Garante um nome único para o callback
+        const callbackName = "cb_" + Math.round(Math.random() * 1000000);
+
+        window[callbackName] = data => {
+            resolve(data);
+            delete window[callbackName];
+            const script = document.getElementById(callbackName);
+            if (script) script.remove();
+        };
+
+        const script = document.createElement("script");
+        script.id = callbackName;
+        // Verifica se a URL já tem interrogação
+        const connector = url.includes('?') ? '&' : '?';
+        script.src = `${url}${connector}callback=${callbackName}`;
+
+        script.onerror = () => {
+            delete window[callbackName];
+            script.remove();
+            reject(new Error("Erro de conexão JSONP (CORS/GAS)"));
+        };
+
+        document.body.appendChild(script);
+    });
+}
+
+// --- CENTRAL DE REQUISIÇÕES GET ---
 async function apiGet(params = {}) {
-    if (!currentUserToken) {
+    if (params.type !== 'verify' && !currentUserToken) {
         showToast("Sessão expirada. Faça login novamente.", "error");
         requestToken(null, "Sessão expirada");
         throw new Error("Token ausente no frontend");
@@ -1733,18 +1762,10 @@ async function apiGet(params = {}) {
 
     const query = new URLSearchParams({
         ...params,
-        token: currentUserToken
+        token: params.token || currentUserToken
     });
 
-    try {
-        const response = await fetch(`${API_URL}?${query.toString()}`);
-        const data = await response.json();
-        if (data.error) throw new Error(data.error);
-        return data;
-    } catch (error) {
-        console.error("Erro API GET:", error);
-        throw error;
-    }
+    return jsonp(`${API_URL}?${query.toString()}`);
 }
 
 // --- GUARD GLOBAL PARA AÇÕES ---
@@ -2124,7 +2145,7 @@ async function syncMonthData(baseDateKey) {
     }
 }
 
-// 5. ENVIAR DADOS (POST)
+// 5. ENVIAR DADOS (POST via Proxy)
 async function sendUpdateToSheet(payload) {
     try {
         requireAuth();
@@ -2136,9 +2157,14 @@ async function sendUpdateToSheet(payload) {
             else params.append(key, payload[key]);
         }
 
-        const response = await fetch(API_URL, { method: "POST", body: params });
+        // POSTS devem passar pelo Proxy para evitar erro de CORS do Google
+        const response = await fetch(PROXY_URL, {
+            method: "POST",
+            body: params
+        });
         return await response.json();
     } catch (error) {
+        console.error("Erro POST:", error);
         return { status: "error", message: error.message };
     }
 }
@@ -2156,9 +2182,8 @@ async function attemptLogin() {
     btn.disabled = true;
 
     try {
-        // Agora o front pergunta para a API se esse token existe
-        const response = await fetch(`${API_URL}?type=verify&token=${val}`);
-        const data = await response.json();
+        // Agora usa apiGet (JSONP) para evitar erro de CORS no login
+        const data = await apiGet({ type: 'verify', token: val });
 
         if (data.valid) {
             currentUserToken = val;
