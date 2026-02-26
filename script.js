@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbx-xQcWMi4xZaw_DfeczO9uQJozBVVrUizZxE__XE-9Ny9Jsc8_-avB0Txx4UbSeQNx/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-sYiyql5P9iw5ujdbQTnu7w0hMNCqTFwxPocIPh2bQVg/exec";
 
 // --- DADOS GLOBAIS ---
 let appointments = {};
@@ -470,26 +470,28 @@ async function syncMonthData(baseDateKey) {
     }
 }
 
-// 5. ENVIAR DADOS (POST via Proxy)
+// --- VERSÃO CORRIGIDA DA FUNÇÃO DE ENVIO ---
 async function sendUpdateToSheet(payload) {
     try {
         requireAuth();
         payload.token = currentUserToken;
 
+        // Transformamos o payload num objeto de texto para a URL
         const params = new URLSearchParams();
         for (const key in payload) {
-            if (typeof payload[key] === "object") params.append(key, JSON.stringify(payload[key]));
-            else params.append(key, payload[key]);
+            if (typeof payload[key] === "object") {
+                params.append(key, JSON.stringify(payload[key]));
+            } else {
+                params.append(key, payload[key]);
+            }
         }
 
-        // POSTS vão direto para a API_URL
-        const response = await fetch(API_URL, {
-            method: "POST",
-            body: params
-        });
-        return await response.json();
+        // USAMOS JSONP (a função que já funciona no seu código) em vez de FETCH POST
+        // Isso ignora totalmente o erro de CORS e o erro 302/404
+        const response = await jsonp(`${API_URL}?${params.toString()}`);
+        return response;
     } catch (error) {
-        console.error("Erro POST:", error);
+        console.error("Erro no envio:", error);
         return { status: "error", message: error.message };
     }
 }
