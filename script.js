@@ -4,7 +4,6 @@ const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-
 
 // --- DADOS GLOBAIS ---
 let appointments = {};
-let validTokensMap = {};
 
 // --- CACHE DE PERFORMANCE ---
 const DASH_CACHE = {};
@@ -24,12 +23,19 @@ let currentDateKey = null;
 // FLATPICKR INSTANCE
 let fpInstance = null;
 
+// CHART INSTANCES
+let chartLocInstance = null;
+let chartSpecInstance = null;
+
 // --- ESTADO ---
+let isMoveMode = false;
+let clipboardPatient = null;
 
 
 // --- CONTROLE DE SESSÃO ---
 let currentUserToken = null;
 let currentUserRole = null;
+let currentUserName = null;
 let pendingAction = null;
 
 // --- CONSTANTES DE CONTRATOS ---
@@ -38,119 +44,51 @@ const CONTRACTS = {
     MUNICIPAL: ["RECIFE", "JABOATÃO"]
 };
 
-// --- CONFIGURAÇÃO DE PROCEDIMENTOS POR ESPECIALIDADE ---
-const SPECIALTY_PROCEDURES = {
-    "RETINA": [
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "CATARATA": [
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "GLAUCOMA": [
-        "Trabeculectomia",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "CORNEA": [
-        "Implante Intra-Estromal",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Recobrimento Conjuntival",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "PLASTICA": [
-        "Correção Cirúrgica de Entropio e Ectropio",
-        "Correção Cirúrgica de Epicanto e Telecanto",
-        "Correção Cirúrgica de Lagoftalmo",
-        "Dacriocistorrinostomia",
-        "Exérese de Calazio e outras Pequenas Lesões",
-        "Reconstituição de Canal Lacrimal",
-        "Reconstituição de Fornix Conjuntival",
-        "Tratamento de Ptose Palpebral",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "ESTRABISMO": [
-        "Correção Cirúrgica de Estrabismo (Acima de 02 Musculos)",
-        "Correção Cirúrgica de Estrabismo (Até de 02 Musculos)",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "LASER": [
-        "Setorial",
-        "Periferia",
-        "Periferia 360",
-        "Complemento de Panfoto",
-        "Laser Focal",
-        "Panfoto",
-        "Capsulotomia",
-        "Trabeculoplastia",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ],
-    "GERAL": [
-        "Recobrimento Conjuntival",
-        "Facetomia com Implante de Lente Intra-Ocular",
-        "Facetomia sem Implante de Lente Intra-Ocular",
-        "Facoemulsificação com Implante de Lente Intra-ocular Rigida",
-        "Facoemulsificação com Implante de Lente Intra-ocular Dobrável",
-        "Capsulectomia Posterior Cirúrgica",
-        "Implante Secundário de Lentre Intra-Ocular-Lio",
-        "Reposicionamento de Lente Intraocular",
-        "Vitrectomia Anterior"
-    ]
+// --- CONFIGURAÇÃO DE PROCEDIMENTOS DINÂMICOS ---
+let SPECIALTY_PROCEDURES = {
+    "CIRURGIA": [],
+    "LASER": []
 };
+
+// --- HELPER DE GET CENTRALIZADO ---
+async function apiGet(params = {}) {
+    if (!currentUserToken) {
+        showToast("Sessão expirada. Faça login novamente.", "error");
+        requestToken(null, "Sessão expirada");
+        throw new Error("Token ausente no frontend");
+    }
+
+    const query = new URLSearchParams({
+        ...params,
+        token: currentUserToken
+    });
+
+    try {
+        const response = await fetch(`${API_URL}?${query.toString()}`);
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        return data;
+    } catch (error) {
+        console.error("Erro API GET:", error);
+        throw error;
+    }
+}
+
+// --- GUARD GLOBAL PARA AÇÕES ---
+function requireAuth() {
+    if (!currentUserToken) {
+        requestToken(null, "Sessão expirada");
+        throw new Error("Token ausente");
+    }
+}
+
+// --- BUSCAR PROCEDIMENTOS ---
+async function fetchProcedures() {
+    try {
+        const data = await apiGet({ type: 'procedures' });
+        if (data) SPECIALTY_PROCEDURES = data;
+    } catch (error) { console.error("Falha ao carregar procedimentos:", error); }
+}
 
 // --- INDICADOR DE CARREGAMENTO (CURSOR) ---
 function setLoading(isLoading, isBlocking = false) {
@@ -277,120 +215,44 @@ function getProceduresFromSlot(slot) {
 function handleContractChange() {
     const contract = document.getElementById('bk-contract').value;
     const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
-    const checkBoxes = document.querySelectorAll('.proc-reg-check');
-
-    checkBoxes.forEach(cb => {
-        const label = cb.parentElement;
-
-        if (isMunicipal) {
-            // REGRA: Se municipal, desmarca e desabilita (cinza)
-            cb.checked = false;
-            cb.disabled = true;
-            label.style.opacity = '0.5';
-            label.style.cursor = 'not-allowed';
-            label.title = "Não aplicável para contratos municipais";
-        } else {
-            // Se não for municipal, habilita
-            cb.disabled = false;
-            label.style.opacity = '1';
-            label.style.cursor = 'pointer';
-            label.title = "Marcar se é Regulado";
-        }
-    });
-
-    checkWarning(); // Recalcula KPIs
-}
-
-// Adiciona uma linha visual no modal
-function addProcedureRow(name = '', isRegulated = true) {
-    const container = document.getElementById('procedures-container');
-    const id = Date.now() + Math.random().toString(16).slice(2);
-
-    // Verifica estado atual do contrato para criar o checkbox já correto
-    const contract = document.getElementById('bk-contract').value;
-    const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
-
-
-
-    // Verifica Especialidade da Vaga - CORREÇÃO: Trim para remover espaços fantasmas
-    const rawSpecialty = (document.getElementById('bk-specialty').value || "").trim();
-
-    // Normaliza para chave (upper e sem acentos básicos se necessário, aqui assumindo match direto ou upper)
-    // Mapeamento simples de segurança para acentos
-    const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E', 'À': 'A' };
-    let normalizedSpec = rawSpecialty.toUpperCase().replace(/[ÇÃÕÁÉÍÓÚÂÊ]/g, c => mapAccents[c] || c);
-
-    // Fallback: Se for "LASERS" (plural), converte para "LASER"
-    if (normalizedSpec === 'LASERS') normalizedSpec = 'LASER';
-
-    // SMART MATCH: Se não encontrar chave exata, tenta a primeira palavra (ex: "RETINA CIRURGICA" -> "RETINA")
-    if (!SPECIALTY_PROCEDURES[normalizedSpec]) {
-        const firstPart = normalizedSpec.split(' ')[0];
-        if (SPECIALTY_PROCEDURES[firstPart]) normalizedSpec = firstPart;
-    }
-
-    const allowedProcs = SPECIALTY_PROCEDURES[normalizedSpec];
-
-    let checkState = isRegulated ? 'checked' : '';
-    let disabledAttr = '';
-    let opacityStyle = '1';
-    let cursorStyle = 'pointer';
+    const cb = document.getElementById('bk-proc-regulated');
+    const label = cb.parentElement;
 
     if (isMunicipal) {
-        checkState = ''; // Força desmarcado
-        disabledAttr = 'disabled';
-        opacityStyle = '0.5';
-        cursorStyle = 'not-allowed';
-    }
-
-    const row = document.createElement('div');
-    row.className = 'procedure-row';
-    row.id = `proc-row-${id}`;
-    row.style.cssText = "display:flex; gap:8px; align-items:center;";
-
-    let inputHtml = '';
-
-    if (allowedProcs && allowedProcs.length > 0) {
-        // Renderiza SELECT
-        let options = `<option value="">Selecione o procedimento...</option>`;
-        allowedProcs.forEach(proc => {
-            const selected = proc === name ? 'selected' : '';
-            options += `<option value="${proc}" ${selected}>${proc}</option>`;
-        });
-
-        inputHtml = `
-            <select class="form-select proc-name-input" style="flex:1;">
-                ${options}
-            </select>
-        `;
+        cb.checked = false;
+        cb.disabled = true;
+        label.style.opacity = '0.5';
+        label.style.cursor = 'not-allowed';
+        label.title = "Não aplicável para contratos municipais";
     } else {
-        // Renderiza INPUT TEXT (Fallback)
-        inputHtml = `<input type="text" class="form-input proc-name-input" placeholder="Ex: Faco, Lio..." value="${name}" style="flex:1;">`;
+        cb.disabled = false;
+        label.style.opacity = '1';
+        label.style.cursor = 'pointer';
+        label.title = "Marcar se é Regulado";
     }
 
-    row.innerHTML = `
-        ${inputHtml}
-        
-        <label style="display:flex; align-items:center; gap:4px; font-size:0.8rem; cursor:${cursorStyle}; background:white; padding:8px; border:1px solid #cbd5e1; border-radius:8px; opacity:${opacityStyle}" title="Marcar se é Regulado">
-            <input type="checkbox" class="proc-reg-check" ${checkState} ${disabledAttr} onchange="checkWarning()">
-            Regulado
-        </label>
-
-        <button type="button" class="btn btn-danger" onclick="removeProcedureRow('${id}')" style="padding:8px; border-radius:8px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-    `;
-    container.appendChild(row);
-    if (name === '') checkWarning();
+    toggleRegulated();
 }
 
-function removeProcedureRow(id) {
-    const row = document.getElementById(`proc-row-${id}`);
-    if (row) row.remove();
-    checkWarning();
+// --- FUNÇÃO PARA MOSTRAR/ESCONDER MOTIVOS INTERNOS ---
+function toggleRegulated() {
+    checkWarning(); // Mantém o alerta do gráfico funcionando
+    const isReg = document.getElementById('bk-proc-regulated').checked;
+    const contract = document.getElementById('bk-contract').value;
+    const container = document.getElementById('bk-internal-type-container');
+
+    // MUDANÇA: Tiramos a obrigatoriedade de ter um contrato já selecionado
+    // Se NÃO for regulado e NÃO for municipal, mostra as opções imediatamente
+    if (!isReg && !CONTRACTS.MUNICIPAL.includes(contract)) {
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+        // Limpa a seleção
+        document.querySelectorAll('input[name="bk-internal-type"]').forEach(r => r.checked = false);
+    }
 }
 
-// --- LÓGICA DE PRÉ-PROCESSAMENTO DO CACHE ---
+
 function recalculateMonthCache(monthKey) {
     if (!monthKey) return;
 
@@ -400,6 +262,11 @@ function recalculateMonthCache(monthKey) {
     let counts = {
         Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
         Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+        InternoTypes: {
+            ESTADO: { Emergencia: 0, Projetos: 0 },
+            SERRA: { Emergencia: 0, Projetos: 0 },
+            SALGUEIRO: { Emergencia: 0, Projetos: 0 }
+        },
         Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
     };
 
@@ -431,6 +298,11 @@ function recalculateMonthCache(monthKey) {
                                 } else {
                                     counts.Interno.Total++;
                                     if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+
+                                    // NOVA CONTAGEM DE TIPO
+                                    if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
+                                    else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
+                                    else counts.InternoTypes[c].Emergencia++; // Fallback pra antigos
                                 }
                             });
                         } else {
@@ -442,6 +314,9 @@ function recalculateMonthCache(monthKey) {
                             } else {
                                 counts.Interno.Total++;
                                 if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+
+                                // NOVA CONTAGEM DE TIPO (Fallback legados)
+                                counts.InternoTypes[c].Emergencia++;
                             }
                         }
                     }
@@ -461,21 +336,6 @@ function recalculateMonthCache(monthKey) {
 }
 
 // --- COMUNICAÇÃO COM O BACKEND (GOOGLE SHEETS) ---
-
-// 1. CARREGAR TOKENS VÁLIDOS
-async function fetchValidTokens() {
-    try {
-        const response = await fetch(`${API_URL}?type=tokens`, { redirect: "follow" });
-        const data = await response.json();
-        if (data.error) {
-            console.error("Erro tokens:", data.error);
-        } else {
-            validTokensMap = data;
-        }
-    } catch (error) {
-        console.error("Falha tokens:", error);
-    }
-}
 
 // 2. PROCESSAMENTO DE DADOS (RAW -> APP)
 function processRawData(rows, forceDateKey = null) {
@@ -539,19 +399,12 @@ function processRawData(rows, forceDateKey = null) {
     }
 }
 
-// 3. BUSCAR DADOS DE UM DIA ESPECÍFICO (FALLBACK)
+// 3. BUSCAR DADOS DE UM DIA ESPECÍFICO
 async function fetchRemoteData(dateKey, isBackground = false) {
-    if (API_URL.includes("SUA_URL")) { alert("Configure a API_URL!"); return; }
     if (!isBackground) setLoading(true);
-
     try {
-        const response = await fetch(`${API_URL}?date=${dateKey}`, { redirect: "follow" });
-        const data = await response.json();
-
-        if (data.error) throw new Error(data.error);
-
+        const data = await apiGet({ date: dateKey });
         if (data.length === 0) appointments[dateKey] = [];
-
         processRawData(data, dateKey);
 
         if (dateKey === selectedDateKey) {
@@ -559,68 +412,39 @@ async function fetchRemoteData(dateKey, isBackground = false) {
             if (currentView === 'admin') renderAdminTable();
         }
         updateKPIs();
-
     } catch (error) {
-        console.error(`Erro fetch (${dateKey}):`, error);
-        if (!isBackground) showToast('Erro de conexão.', 'error');
+        if (!isBackground) showToast('Erro de conexão ou token inválido.', 'error');
     } finally {
         if (!isBackground) setLoading(false);
     }
 }
 
 // 4. SINCRONIZAR MÊS INTEIRO
-// 4. SINCRONIZAR MÊS INTEIRO
 async function syncMonthData(baseDateKey) {
     if (!baseDateKey) return;
-
     const parts = baseDateKey.split('-');
     const monthKey = `${parts[0]}-${parts[1]}`;
 
-    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
-        console.log("Mês já carregado (Cache).");
-        return;
-    }
+    if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) return;
 
     setLoading(true);
-    console.log(`Buscando mês inteiro: ${monthKey}`);
-
     try {
-        // SNAPSHOT ANTES DO UPDATE (Para evitar flash se dados forem iguais)
         const preUpdateHash = JSON.stringify(appointments[selectedDateKey] || []);
+        const data = await apiGet({ month: monthKey });
 
-        const response = await fetch(`${API_URL}?month=${monthKey}`, { redirect: "follow" });
-        const data = await response.json();
-
-        if (data.error) throw new Error(data.error);
-
-        // Limpeza estratégica: remove chaves do mês mas NÃO ACESSA DOM
-        Object.keys(appointments).forEach(k => {
-            if (k.startsWith(monthKey)) delete appointments[k];
-        });
-
-        processRawData(data); // Repopula global 'appointments'
+        Object.keys(appointments).forEach(k => { if (k.startsWith(monthKey)) delete appointments[k]; });
+        processRawData(data);
 
         if (!DASH_CACHE[monthKey]) recalculateMonthCache(monthKey);
         DASH_CACHE[monthKey].loaded = true;
 
         if (selectedDateKey.startsWith(monthKey)) {
-            // SNAPSHOT DEPOIS DO UPDATE
             const postUpdateHash = JSON.stringify(appointments[selectedDateKey] || []);
-
-            // Só re-renderiza se houve alteração real nos dados do dia visualizado
-            if (preUpdateHash !== postUpdateHash) {
-                renderSlotsList();
-            } else {
-                console.log("Dados do dia idênticos. Skip render.");
-            }
-
-            // Admin Table e KPI sempre atualizam pois podem afetar outros dias/visões
+            if (preUpdateHash !== postUpdateHash) renderSlotsList();
             if (currentView === 'admin') renderAdminTable();
             updateKPIs();
         }
-
     } catch (e) {
-        console.error("Erro syncMonth:", e);
         showToast("Erro ao sincronizar mês.", "error");
     } finally {
         setLoading(false);
@@ -630,67 +454,55 @@ async function syncMonthData(baseDateKey) {
 // 5. ENVIAR DADOS (POST)
 async function sendUpdateToSheet(payload) {
     try {
-        // MUDANÇA: Usar URLSearchParams em vez de FormData
-        // Isso garante o Content-Type: application/x-www-form-urlencoded
-        // que é o formato nativo que o e.parameter do Google Apps Script espera.
-        const params = new URLSearchParams();
+        requireAuth();
+        payload.token = currentUserToken;
 
+        const params = new URLSearchParams();
         for (const key in payload) {
-            if (typeof payload[key] === "object") {
-                params.append(key, JSON.stringify(payload[key]));
-            } else {
-                params.append(key, payload[key]);
-            }
+            if (typeof payload[key] === "object") params.append(key, JSON.stringify(payload[key]));
+            else params.append(key, payload[key]);
         }
 
-        const response = await fetch(API_URL, {
-            method: "POST",
-            body: params
-        });
-
+        const response = await fetch(API_URL, { method: "POST", body: params });
         return await response.json();
-
     } catch (error) {
-        console.error("Erro no envio:", error);
         return { status: "error", message: error.message };
     }
 }
 
 // --- SISTEMA DE LOGIN ---
-
-function attemptLogin() {
+async function attemptLogin() {
     const input = document.getElementById('login-token');
     const val = input.value.trim();
     const err = document.getElementById('login-error');
+    const btn = document.querySelector('#login-modal .btn-primary');
 
-    if (validTokensMap.hasOwnProperty(val)) {
-        currentUserToken = val;
-        const userData = validTokensMap[val];
-        currentUserRole = userData.role || 'USER';
+    if (!val) return;
 
-        input.style.borderColor = '#16a34a';
-        input.style.color = '#16a34a';
+    btn.innerText = "Verificando...";
+    btn.disabled = true;
 
-        setTimeout(() => {
+    try {
+        // Agora o front pergunta para a API se esse token existe
+        const response = await fetch(`${API_URL}?type=verify&token=${val}`);
+        const data = await response.json();
+
+        if (data.valid) {
+            currentUserToken = val;
+            currentUserRole = data.user.role;
+            currentUserName = data.user.name;
+
             closeLoginModal();
-            if (pendingAction) {
-                const action = pendingAction;
-                pendingAction = null;
-                action();
-            }
-        }, 400);
-    } else {
-        currentUserToken = null;
-        currentUserRole = null;
+            initDataFlow(); // Carrega a agenda após o login sucesso
+        } else {
+            throw new Error("Token inválido");
+        }
+    } catch (error) {
         err.style.display = 'block';
         input.style.borderColor = '#dc2626';
-        input.style.color = '#dc2626';
-        input.focus();
-
-        const card = document.querySelector('#login-modal .modal-card');
-        card.style.animation = 'none';
-        card.offsetHeight;
-        card.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
+    } finally {
+        btn.innerText = "Acessar Sistema";
+        btn.disabled = false;
     }
 }
 
@@ -718,12 +530,10 @@ function closeLoginModal() {
 
 function switchView(view) {
     if (view === 'admin') {
-        // SEMPRE PEDE TOKEN PARA ADMIN, MESMO SE JÁ TIVER TOKEN
-        // Isso atende: "se eu for fazer outra coisa... é pra pedir de novo!"
+        // Pede autorização para entrar no modo Gestor
         requestToken(() => executeSwitch('admin'), "Acesso Gestor");
     } else {
-        currentUserToken = null;
-        currentUserRole = null;
+        // Retorna para Agendamento mantendo o token da sessão
         executeSwitch('booking');
     }
 }
@@ -757,16 +567,39 @@ function executeSwitch(view) {
 
 // --- INICIALIZAÇÃO OTIMIZADA ---
 async function initData() {
-    fetchValidTokens();
+    const splash = document.getElementById('app-splash-screen');
 
-    // INICIALIZA O FLATPICKR
+    // Se não tem token logado, remove a tela de loading imediatamente e pede login
+    if (!currentUserToken) {
+        if (splash) splash.remove();
+        requestToken(null, "Bem-vindo ao GovCirúrgica");
+        return;
+    }
+    initDataFlow();
+}
+
+async function initDataFlow() {
+    await fetchProcedures();
+
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const formatYMD = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    const dashStart = document.getElementById('dash-date-start');
+    const dashEnd = document.getElementById('dash-date-end');
+    if (dashStart) dashStart.value = formatYMD(firstDay);
+    if (dashEnd) dashEnd.value = formatYMD(lastDay);
+
     fpInstance = flatpickr("#sidebar-date-picker", {
-        locale: "pt",
-        dateFormat: "Y-m-d", // Formato interno (lógica)
-        altInput: true,      // Habilita input alternativo visual
-        altFormat: "d/m/Y",  // Formato visual BR
-        defaultDate: selectedDateKey,
-        disableMobile: "true", // Força o tema customizado mesmo em mobile
+        locale: "pt", dateFormat: "Y-m-d", altInput: true, altFormat: "d/m/Y",
+        defaultDate: selectedDateKey, disableMobile: "true",
         onChange: function (selectedDates, dateStr, instance) {
             if (dateStr && dateStr !== selectedDateKey) {
                 selectedDateKey = dateStr;
@@ -774,7 +607,6 @@ async function initData() {
             }
         },
         onMonthChange: function (selectedDates, dateStr, instance) {
-            // Quando muda o mês no calendário, garante que temos dados daquele mês
             const year = instance.currentYear;
             const month = String(instance.currentMonth + 1).padStart(2, '0');
             syncMonthData(`${year}-${month}`);
@@ -784,20 +616,14 @@ async function initData() {
     const dashPicker = document.getElementById('dashboard-month-picker');
     if (dashPicker) {
         dashPicker.value = selectedDateKey.substring(0, 7);
-        dashPicker.addEventListener('change', (e) => {
-            syncMonthData(e.target.value);
-        });
+        dashPicker.addEventListener('change', (e) => { syncMonthData(e.target.value); });
     }
 
-    // Await para garantir que o splash screen cubra o carregamento inicial
     await syncMonthData(selectedDateKey);
 
-    // CLICK TRIGGER PARA O CALENDÁRIO
     const triggerBox = document.getElementById('date-trigger-box');
     if (triggerBox && fpInstance) {
-        triggerBox.addEventListener('click', () => {
-            fpInstance.open();
-        });
+        triggerBox.addEventListener('click', () => { fpInstance.open(); });
     }
 
     const splash = document.getElementById('app-splash-screen');
@@ -806,10 +632,10 @@ async function initData() {
         setTimeout(() => { splash.remove(); }, 500);
     }
 
-    updateFilterOptions(); // Atualiza filtros após carga inicial
+    updateFilterOptions();
     renderSlotsList();
     updateKPIs();
-    updateCalendarMarkers(); // Atualiza bolinhas iniciais
+    updateCalendarMarkers();
 }
 
 // ATUALIZA MARCADORES DO CALENDÁRIO (BOLINHA VERDE)
@@ -1199,18 +1025,20 @@ function renderSlotsList() {
 
 // --- GERAÇÃO EM LOTE ---
 
+// --- GERAÇÃO EM LOTE ---
 function bulkCreateSlots() {
     const dateVal = document.getElementById('bulk-date').value;
     const location = document.getElementById('bulk-location').value;
-    const room = document.getElementById('bulk-room').value;
+    const room = document.getElementById('bulk-room').value.trim();
     const group = document.getElementById('bulk-group').value;
-    const doctor = document.getElementById('bulk-doctor').value;
+    const doctor = document.getElementById('bulk-doctor').value.trim();
     const startTime = document.getElementById('bulk-start-time').value;
     const endTime = document.getElementById('bulk-end-time').value;
     const qty = parseInt(document.getElementById('bulk-qty').value);
 
-    if (!dateVal || !startTime || !endTime || !doctor || isNaN(qty) || qty < 1) {
-        return showToast('Preencha todos os campos.', 'error');
+    // CORREÇÃO: Exigindo a Sala e o Médico corretamente
+    if (!dateVal || !startTime || !endTime || !doctor || !room || isNaN(qty) || qty < 1) {
+        return showToast('Preencha todos os campos, incluindo a Sala.', 'error');
     }
 
     const [h1, m1] = startTime.split(':').map(Number);
@@ -1235,36 +1063,59 @@ function bulkCreateSlots() {
             id: Date.now() + i,
             date: dateVal,
             time: timeStr,
-            room: room || '1',
+            room: room,
             location: location,
             doctor: doctor,
-            specialty: group, // Aqui definimos a ESPECIALIDADE (categoria)
-            procedure: group, // Inicialmente procedure = group (compatibilidade)
-            createdBy: currentUserToken
+            specialty: group,
+            procedure: group
+            // createdBy removido: o backend infere do token
         });
     }
 
-    showMessageModal('Processando', `Criando ${qty} vagas...`, 'loading');
+    // --- UX: SPINNER NO BOTÃO ---
+    const btn = document.querySelector('button[onclick="bulkCreateSlots()"]');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Criando...`;
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
 
     const payload = {
         action: "create_bulk",
-        data: slotsToSend,
-        createdBy: currentUserToken // <--- ADICIONAR ISSO
+        data: slotsToSend
     };
 
     sendUpdateToSheet(payload).then(resp => {
-        closeMessageModal();
+        // Restaura o botão
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+
         if (resp && resp.status === 'success') {
             showToast(`${qty} vagas criadas!`, 'success');
 
-            processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE', created_by: currentUserToken })));
+            // --- UX: LIMPANDO TODOS OS CAMPOS ---
+            document.getElementById('bulk-room').value = '';
+            document.getElementById('bulk-doctor').value = '';
+            document.getElementById('bulk-date').value = '';
+            document.getElementById('bulk-qty').value = '1';
+            document.getElementById('bulk-start-time').value = '07:00';
+            document.getElementById('bulk-end-time').value = '12:00';
+
+            processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE' })));
 
             selectedDateKey = dateVal;
             document.getElementById('sidebar-date-picker').value = selectedDateKey;
             renderSlotsList();
             updateKPIs();
             executeSwitch('booking');
+        } else {
+            showToast('Erro ao processar criação.', 'error');
         }
+    }).catch(err => {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        showToast('Erro no servidor.', 'error');
     });
 }
 
@@ -1380,8 +1231,7 @@ async function processBatchDelete(ids) {
     try {
         const payload = {
             action: "delete_bulk",
-            ids: ids,
-            createdBy: currentUserToken // Garante token na exclusão em lote
+            ids: ids
         };
 
         // Usa sendUpdateToSheet para garantir mesmo formato (URLSearchParams)
@@ -1431,8 +1281,7 @@ function deleteSlot(id) {
 
         const resp = await sendUpdateToSheet({
             action: "delete",
-            id: id,
-            createdBy: currentUserToken // Adiciona token na exclusão individual
+            id: id
         });
         if (resp && resp.status === 'success') {
             Object.keys(appointments).forEach(key => {
@@ -1446,10 +1295,6 @@ function deleteSlot(id) {
 
             showToast('Vaga excluída.', 'success');
         }
-
-        // STRICT TOKEN
-        currentUserToken = null;
-        currentUserRole = null;
 
         setLoading(false);
     });
@@ -1475,8 +1320,6 @@ function openBookingModal(slot, dateKey) {
     document.getElementById('selected-slot-id').value = slot.id;
     document.getElementById('bk-specialty').value = slot.specialty || '';
 
-    const container = document.getElementById('procedures-container');
-    container.innerHTML = '';
 
     const btnArea = document.getElementById('action-buttons-area');
     btnArea.innerHTML = ''; // Limpa botões
@@ -1486,21 +1329,26 @@ function openBookingModal(slot, dateKey) {
         document.getElementById('bk-patient').value = slot.patient || '';
         document.getElementById('bk-record').value = slot.record || '';
         document.getElementById('bk-contract').value = slot.contract || '';
-        document.getElementById('bk-detail').value = slot.detail || '';
-        document.getElementById('bk-eye').value = slot.eye || '';
-
-        // Parse procedimentos salvos
         try {
             if (slot.procedure) {
                 const plist = JSON.parse(slot.procedure);
-                if (Array.isArray(plist)) {
-                    plist.forEach(p => addProcedureRow(p.name, p.regulated));
+                if (Array.isArray(plist) && plist.length > 0) {
+                    updateProcedureSelectOptions(slot.specialty, plist[0].name || '');
+                    document.getElementById('bk-proc-regulated').checked = plist[0].regulated;
+
+                    // NOVA CARGA
+                    if (!plist[0].regulated && plist[0].type) {
+                        document.querySelectorAll('input[name="bk-internal-type"]').forEach(r => {
+                            if (r.value === plist[0].type) r.checked = true;
+                        });
+                    }
                 }
             }
         } catch (e) {
-            // Se falhar parse (formato antigo?), tenta adicionar como string única
-            if (slot.procedure) addProcedureRow(slot.procedure, slot.regulated);
+            updateProcedureSelectOptions(slot.specialty, slot.procedure || '');
+            document.getElementById('bk-proc-regulated').checked = slot.regulated || false;
         }
+        toggleRegulated(); // Força a tela a se arrumar
 
         // Botão de Cancelar/Liberar (REMOVIDO BOTÃO DE REALOCAR)
         const cancelBtn = document.createElement('button');
@@ -1522,15 +1370,56 @@ function openBookingModal(slot, dateKey) {
         document.getElementById('bk-patient').value = '';
         document.getElementById('bk-record').value = '';
         document.getElementById('bk-contract').value = '';
-        document.getElementById('bk-detail').value = '';
-        document.getElementById('bk-eye').value = '';
-        addProcedureRow(); // Linha vazia inicial
+
+        updateProcedureSelectOptions(slot.specialty, '');
+        document.getElementById('bk-proc-regulated').checked = true;
 
         const confirmBtn = document.createElement('button');
         confirmBtn.className = 'btn btn-primary';
         confirmBtn.innerText = 'Confirmar';
         confirmBtn.onclick = confirmBookingFromModal;
         btnArea.appendChild(confirmBtn);
+
+        // ADICIONE ESTA LINHA AQUI:
+        toggleRegulated();
+    }
+}
+
+function updateProcedureSelectOptions(specialtyGroup, currentProcName = '') {
+    const select = document.getElementById('bk-procedure');
+    select.innerHTML = '<option value="">Selecione o procedimento...</option>';
+
+    // Normaliza a especialidade 
+    const rawSpecialty = (specialtyGroup || "").trim();
+    const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E', 'À': 'A' };
+    let normalizedSpec = rawSpecialty.toUpperCase().replace(/[ÇÃÕÁÉÍÓÚÂÊ]/g, c => mapAccents[c] || c);
+
+    if (normalizedSpec === 'LASERS') normalizedSpec = 'LASER';
+
+    // Fallback: Se não for LASER, usamos CIRURGIA por padrão para as demais
+    if (normalizedSpec !== 'LASER') {
+        normalizedSpec = 'CIRURGIA';
+    }
+
+    // Pega a lista original e CRIA UMA CÓPIA ORDENADA ALFABETICAMENTE
+    let procs = SPECIALTY_PROCEDURES[normalizedSpec] || [];
+    procs = [...procs].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    // Adiciona ao <select>
+    procs.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (p === currentProcName) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    if (currentProcName && !procs.includes(currentProcName)) {
+        const opt = document.createElement('option');
+        opt.value = currentProcName;
+        opt.textContent = currentProcName + " (Legado/Personalizado)";
+        opt.selected = true;
+        select.appendChild(opt);
     }
 }
 
@@ -1548,13 +1437,11 @@ function checkWarning() {
 
     let newReg = 0;
     let newInt = 0;
-    document.querySelectorAll('.procedure-row').forEach(row => {
-        const nameInput = row.querySelector('.proc-name-input');
-        if (nameInput && nameInput.value.trim()) {
-            const isReg = row.querySelector('.proc-reg-check').checked;
-            if (isReg) newReg++; else newInt++;
-        }
-    });
+    const nameInput = document.getElementById('bk-procedure');
+    if (nameInput && nameInput.value.trim()) {
+        const isReg = document.getElementById('bk-proc-regulated').checked;
+        if (isReg) newReg = 1; else newInt = 1;
+    }
 
     if (newReg === 0 && newInt === 0) newReg = 1;
 
@@ -1605,34 +1492,33 @@ function confirmBookingFromModal() {
     const record = document.getElementById('bk-record').value;
     const patient = document.getElementById('bk-patient').value;
     const contract = document.getElementById('bk-contract').value;
-    const detail = document.getElementById('bk-detail').value;
-    const eye = document.getElementById('bk-eye').value;
+    const name = document.getElementById('bk-procedure').value.trim();
+    const isReg = document.getElementById('bk-proc-regulated').checked;
 
-    const procRows = document.querySelectorAll('.procedure-row');
-    const proceduresList = [];
-
-    procRows.forEach(row => {
-        const name = row.querySelector('.proc-name-input').value.trim();
-        const isReg = row.querySelector('.proc-reg-check').checked;
-        if (name) {
-            proceduresList.push({ name: name, regulated: isReg });
-        }
-    });
-
-    if (!patient || !contract || !record || !eye || proceduresList.length === 0) {
-        return showToast('Preencha os campos obrigatórios e ao menos 1 procedimento.', 'error');
+    if (!patient || !contract || !record || !name) {
+        return showToast('Preencha os campos obrigatórios e o procedimento.', 'error');
     }
 
-    const procedureJSON = JSON.stringify(proceduresList);
-    const mainRegulatedStatus = proceduresList.some(p => p.regulated);
+    let internalType = null;
+
+    if (!isReg && !CONTRACTS.MUNICIPAL.includes(contract)) {
+        const selectedRadio = document.querySelector('input[name="bk-internal-type"]:checked');
+        if (!selectedRadio) {
+            return showToast('Obrigatório selecionar Emergência ou Projetos.', 'error');
+        }
+        internalType = selectedRadio.value;
+    }
+
+    const procedureJSON = JSON.stringify([{ name: name, regulated: isReg, type: internalType }]);
+    const mainRegulatedStatus = isReg;
 
     const summary = `
         <div style="text-align:left; background:#f8fafc; padding:16px; border-radius:8px; font-size:0.9rem; border:1px solid #e2e8f0">
             <div><b>Paciente:</b> ${patient}</div>
             <div><b>Contrato:</b> ${contract}</div>
-            <div style="margin-top:8px; font-weight:600; border-top:1px dashed #ccc; padding-top:4px">Procedimentos (${proceduresList.length}):</div>
+            <div style="margin-top:8px; font-weight:600; border-top:1px dashed #ccc; padding-top:4px">Procedimento:</div>
             <ul style="margin:0; padding-left:20px; font-size:0.85rem">
-                ${proceduresList.map(p => `<li>${p.name} (${p.regulated ? 'Regulado' : 'Interno'})</li>`).join('')}
+                <li>${name} (${isReg ? 'Regulado' : 'Interno'})</li>
             </ul>
         </div>
         <div style="margin-top:16px; font-weight:600">Confirmar?</div>
@@ -1651,9 +1537,9 @@ function confirmBookingFromModal() {
                         contract: contract,
                         regulated: mainRegulatedStatus,
                         procedure: procedureJSON,
-                        detail: detail,
-                        eye: eye,
-                        createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
+                        detail: "",
+                        eye: ""
+                        // createdBy removido: o backend infere do token
                     };
                 }
             });
@@ -1674,14 +1560,9 @@ function confirmBookingFromModal() {
                 contract: contract,
                 regulated: mainRegulatedStatus,
                 procedure: procedureJSON,
-                detail: detail,
-                eye: eye,
-                createdBy: currentUserToken
+                detail: "",
+                eye: ""
             };
-
-            // STRICT TOKEN: Limpa o token imediatamente após o uso
-            currentUserToken = null;
-            currentUserRole = null;
 
             sendUpdateToSheet(payload).then(async (resp) => {
                 const success = resp && resp.status === 'success';
@@ -1740,8 +1621,7 @@ function cancelSlotBooking() {
                         ...appointments[dateKey][slotIndex],
                         status: 'LIVRE',
                         patient: '', record: '', contract: '', regulated: null,
-                        procedure: '', detail: '', eye: '',
-                        createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
+                        procedure: '', detail: '', eye: ''
                     };
                 }
             });
@@ -1758,13 +1638,8 @@ function cancelSlotBooking() {
                 id: id,
                 status: 'LIVRE',
                 patient: '', record: '', contract: '', regulated: null,
-                procedure: '', detail: '', eye: '',
-                createdBy: validTokensMap[currentUserToken] ? validTokensMap[currentUserToken].name : currentUserToken
+                procedure: '', detail: '', eye: ''
             };
-
-            // STRICT TOKEN: Limpa o token imediatamente
-            currentUserToken = null;
-            currentUserRole = null;
 
             sendUpdateToSheet(payload);
         }, "Autorizar Cancelamento");
@@ -1772,50 +1647,249 @@ function cancelSlotBooking() {
 }
 
 // --- KPI: AJUSTADA PARA CONTAR PROCEDIMENTOS ---
-function updateKPIs() {
-    const picker = document.getElementById('dashboard-month-picker');
-    let targetMonth = selectedDateKey.substring(0, 7);
+function calculateFilteredStats() {
+    const startInput = document.getElementById('dash-date-start');
+    const endInput = document.getElementById('dash-date-end');
 
-    if (picker && picker.value) {
-        targetMonth = picker.value;
-    } else if (picker) {
-        picker.value = targetMonth;
-    }
+    let startDate = startInput && startInput.value ? startInput.value : selectedDateKey;
+    let endDate = endInput && endInput.value ? endInput.value : startDate;
 
-    if (!DASH_CACHE[targetMonth]) recalculateMonthCache(targetMonth);
+    if (startDate > endDate && endDate) endDate = startDate;
 
-    const stats = DASH_CACHE[targetMonth] || {
-        total: 0, occupied: 0,
-        counts: {
-            Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-            Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
-            Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
-        }
+    let totalSlots = 0;
+    let occupiedSlots = 0;
+    let totalMarcacoes = 0;
+    let totalCirurgia = 0;
+    let totalLaser = 0;
+
+    let counts = {
+        Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+        Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
+        InternoTypes: {
+            ESTADO: { Emergencia: 0, Projetos: 0 },
+            SERRA: { Emergencia: 0, Projetos: 0 },
+            SALGUEIRO: { Emergencia: 0, Projetos: 0 }
+        },
+        Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
     };
 
-    const { total, occupied, counts } = stats;
+    let locationCounts = {};
 
-    const totalMunicipal = counts.Municipal.Total;
+    Object.keys(appointments).forEach(dateKey => {
+        if (dateKey >= startDate && dateKey <= endDate) {
+            const daySlots = appointments[dateKey];
+            totalSlots += daySlots.length;
+            daySlots.forEach(s => {
+                if (s.status === 'OCUPADO') {
+                    occupiedSlots++;
+                    totalMarcacoes++;
+
+                    let isLaser = false;
+                    let isCirurgia = false;
+
+                    if (s.specialty && s.specialty.toUpperCase() === 'LASER') {
+                        isLaser = true;
+                    } else if (s.specialty && s.specialty.toUpperCase().includes('LASER')) {
+                        isLaser = true; // Fallback para legados
+                    } else {
+                        isCirurgia = true;
+                    }
+
+                    if (isLaser) totalLaser++;
+                    if (isCirurgia) totalCirurgia++;
+
+                    const procs = getProceduresFromSlot(s);
+                    const procsLen = procs.length > 0 ? procs.length : 1;
+
+                    // Conta por local físico
+                    const loc = s.location ? s.location.trim() : "Outros";
+                    if (!locationCounts[loc]) locationCounts[loc] = 0;
+                    locationCounts[loc] += procsLen;
+
+                    const c = s.contract ? s.contract.toUpperCase() : null;
+                    if (!c) return;
+
+                    if (CONTRACTS.MUNICIPAL.includes(c)) {
+                        const countToAdd = procs.length > 0 ? procs.length : 1;
+                        counts.Municipal.Total += countToAdd;
+                        if (counts.Municipal[c] !== undefined) counts.Municipal[c] += countToAdd;
+
+                    } else if (CONTRACTS.LOCALS.includes(c)) {
+                        if (procs.length > 0) {
+                            procs.forEach(p => {
+                                if (p.regulated) {
+                                    counts.Regulado.Total++;
+                                    if (counts.Regulado[c] !== undefined) counts.Regulado[c]++;
+                                } else {
+                                    counts.Interno.Total++;
+                                    if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+
+                                    // NOVA CONTAGEM DE TIPO
+                                    if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
+                                    else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
+                                    else counts.InternoTypes[c].Emergencia++; // Fallback pra antigos
+                                }
+                            });
+                        } else {
+                            counts.Interno.Total++;
+                            if (counts.Interno[c] !== undefined) counts.Interno[c]++;
+
+                            // NOVA CONTAGEM DE TIPO
+                            const p = (procs.length > 0) ? procs[0] : {};
+                            if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
+                            else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
+                            else counts.InternoTypes[c].Emergencia++;
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    return { total: totalSlots, occupied: occupiedSlots, counts, totalMarcacoes, totalCirurgia, totalLaser, startDate, endDate, locationCounts };
+}
+
+function updateCharts(stats) {
+    const ctxLoc = document.getElementById('chart-location');
+    const ctxContract = document.getElementById('chart-specialty');
+
+    if (!ctxLoc || !ctxContract) return;
+
+    // --- GRÁFICO 1: DISTRIBUIÇÃO POR UNIDADE FÍSICA (DOUGHNUT) ---
+    const locLabels = Object.keys(stats.locationCounts || {});
+    const locValues = Object.values(stats.locationCounts || {});
+    const locColors = ['#0284c7', '#059669', '#d97706', '#7c3aed', '#db2777', '#475569'];
+
+    if (chartLocInstance) {
+        // ATUALIZAÇÃO SUAVE (Evita o gráfico piscar)
+        chartLocInstance.data.labels = locLabels;
+        chartLocInstance.data.datasets[0].data = locValues;
+        chartLocInstance.update();
+    } else {
+        // CRIAÇÃO COM DESIGN PREMIUM
+        chartLocInstance = new Chart(ctxLoc, {
+            type: 'doughnut',
+            data: {
+                labels: locLabels,
+                datasets: [{
+                    data: locValues,
+                    backgroundColor: locColors.slice(0, locLabels.length),
+                    borderWidth: 0, // Tira a borda branca padrão agressiva
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: 10 },
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", size: 12, weight: '500' } }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        titleFont: { family: "'Inter', sans-serif" },
+                        bodyFont: { family: "'Inter', sans-serif" },
+                        padding: 12,
+                        cornerRadius: 8
+                    }
+                },
+                cutout: '72%' // Deixa o anel mais fino e elegante
+            }
+        });
+    }
+
+    // --- GRÁFICO 2: DESEMPENHO POR CONTRATO (STACKED BAR) ---
+    const barDataReg = [stats.counts.Regulado.ESTADO, stats.counts.Regulado.SERRA, stats.counts.Regulado.SALGUEIRO];
+    const barDataInt = [stats.counts.Interno.ESTADO, stats.counts.Interno.SERRA, stats.counts.Interno.SALGUEIRO];
+
+    if (chartSpecInstance) {
+        // ATUALIZAÇÃO SUAVE
+        chartSpecInstance.data.datasets[0].data = barDataReg;
+        chartSpecInstance.data.datasets[1].data = barDataInt;
+        chartSpecInstance.update();
+    } else {
+        // CRIAÇÃO COM DESIGN PREMIUM
+        chartSpecInstance = new Chart(ctxContract, {
+            type: 'bar',
+            data: {
+                labels: ['Estado', 'Serra Talhada', 'Salgueiro'],
+                datasets: [
+                    {
+                        label: 'Regulados',
+                        data: barDataReg,
+                        backgroundColor: '#7c3aed',
+                        borderRadius: 6, // Arredonda o topo das barras
+                        maxBarThickness: 35, // Limite máximo de largura em pixels
+                        barPercentage: 0.6,  // Ocupa 60% da categoria (torna a barra mais fina)
+                        categoryPercentage: 0.5 // Aumenta o espaçamento entre os grupos de barras
+                    },
+                    {
+                        label: 'Internos',
+                        data: barDataInt,
+                        backgroundColor: '#059669',
+                        borderRadius: 6,
+                        maxBarThickness: 35,
+                        barPercentage: 0.6,
+                        categoryPercentage: 0.5
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", weight: '500' } }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        mode: 'index',
+                        intersect: false,
+                        titleFont: { family: "'Inter', sans-serif" },
+                        bodyFont: { family: "'Inter', sans-serif" }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { display: false }, // Limpa as linhas verticais
+                        ticks: { font: { family: "'Inter', sans-serif", weight: '600' } }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        grid: { color: '#f1f5f9', drawBorder: false }, // Linhas horizontais sutis
+                        ticks: { stepSize: 1, font: { family: "'Inter', sans-serif" } }
+                    }
+                },
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }
+            }
+        });
+    }
+}
+
+function updateKPIs() {
+    const stats = calculateFilteredStats();
+    const { total, occupied, counts, totalMarcacoes, totalCirurgia, totalLaser } = stats;
+
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
 
-    // Universo GOV = Soma de procedimentos estaduais/locais
     const universeGov = totalReg + totalInt;
     const validBaseGov = universeGov > 0 ? universeGov : 1;
 
-    // Ocupação Global (Ainda baseada em vagas físicas)
     const realIdleCount = total - occupied;
 
-    animateMetric('glb-total', total);
+    animateMetric('glb-marcacoes', totalMarcacoes);
+    animateMetric('glb-cirurgia', totalCirurgia);
+    animateMetric('glb-laser', totalLaser);
 
-    const pctOccupiedPhysical = total > 0 ? (occupied / total) * 100 : 0;
-    animateMetric('glb-occupied', pctOccupiedPhysical, true);
-
-    animateMetric('glb-idle', realIdleCount);
-
-    // --- KPIS GOV (Baseado em Procedimentos) ---
     const pctRegGlobal = (totalReg / validBaseGov) * 100;
-
     animateMetric('kpi-60-val', pctRegGlobal, true);
     document.getElementById('prog-60').style.width = Math.min(pctRegGlobal, 100) + '%';
 
@@ -1824,7 +1898,6 @@ function updateKPIs() {
     animateSubMetric('stat-salgueiro', counts.Regulado.SALGUEIRO, totalReg);
 
     const pctIntGlobal = (totalInt / validBaseGov) * 100;
-
     animateMetric('kpi-40-val', pctIntGlobal, true);
     document.getElementById('prog-40').style.width = Math.min(pctIntGlobal, 100) + '%';
 
@@ -1835,19 +1908,67 @@ function updateKPIs() {
     animateMetric('stat-recife', counts.Municipal.RECIFE);
     animateMetric('stat-jaboatao', counts.Municipal.JABOATÃO);
     animateMetric('kpi-mun-val', counts.Municipal.Total);
+
+    // --- GERAÇÃO DOS BALÕES DE TOOLTIP (HOVER) NOS INTERNOS ---
+    const setTooltip = (id, c) => {
+        const el = document.getElementById(id).parentElement;
+
+        // Remove o balão nativo feio e prepara a div para receber o novo
+        el.removeAttribute('title');
+        el.classList.add('tooltip-container');
+
+        // Cria a caixinha customizada se ela ainda não existir no card
+        let tooltip = el.querySelector('.custom-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'custom-tooltip';
+            el.appendChild(tooltip);
+        }
+
+        const totalIntContrato = counts.Interno[c];
+
+        if (totalIntContrato > 0) {
+            const em = counts.InternoTypes[c].Emergencia;
+            const pr = counts.InternoTypes[c].Projetos;
+            const emPct = ((em / totalIntContrato) * 100).toFixed(1);
+            const prPct = ((pr / totalIntContrato) * 100).toFixed(1);
+
+            // Injeta o HTML bem formatado dentro da caixinha flutuante
+            tooltip.innerHTML = `
+                <div style="font-weight:800; color:#e0f2fe; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:6px; margin-bottom:8px; text-transform:uppercase; font-size:0.7rem; letter-spacing: 0.5px;">
+                    Detalhamento
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:6px; align-items:center;">
+                    <span style="color:#f0f9ff; opacity:0.9">Emergência:</span> 
+                    <span style="font-weight:700; color:#fff; font-size:0.85rem">${em} <span style="font-size:0.65rem; color:#e0f2fe; font-weight:500">(${emPct}%)</span></span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="color:#f0f9ff; opacity:0.9">Projetos:</span> 
+                    <span style="font-weight:700; color:#fff; font-size:0.85rem">${pr} <span style="font-size:0.65rem; color:#e0f2fe; font-weight:500">(${prPct}%)</span></span>
+                </div>
+            `;
+            el.style.cursor = 'help';
+            tooltip.style.display = 'block';
+        } else {
+            // Se não tiver procedimentos internos, não mostra a caixinha
+            el.style.cursor = 'default';
+            tooltip.style.display = 'none';
+        }
+    };
+
+    setTooltip('stat-int-estado', 'ESTADO');
+    setTooltip('stat-int-serra', 'SERRA');
+    setTooltip('stat-int-salgueiro', 'SALGUEIRO');
+
+    // Atualiza Gráficos
+    updateCharts(stats);
 }
 
 // --- PDF: TAMBÉM AJUSTADO ---
 function generateDashboardPDF() {
-    const monthVal = document.getElementById('dashboard-month-picker').value || 'Geral';
-
-    let stats = DASH_CACHE[monthVal];
-    if (!stats) {
-        recalculateMonthCache(monthVal);
-        stats = DASH_CACHE[monthVal];
-    }
-
-    const { total, occupied, counts } = stats;
+    const stats = calculateFilteredStats();
+    let monthVal = `${stats.startDate} a ${stats.endDate}`;
+    const { total, occupied, counts, totalMarcacoes, totalCirurgia, totalLaser } = stats;
 
     // Cálculos
     const totalMunicipal = counts.Municipal.Total;
@@ -1978,10 +2099,10 @@ function showMessageModal(title, message, type = 'success', onConfirm = null) {
     if (type === 'loading') btns.style.display = 'none';
 
     const icons = {
-        'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
-        'warning': { color: '#d97706', bg: '#fef3c7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
-        'error': { color: '#dc2626', bg: '#fee2e2', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>` },
-        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
+        'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
+        'warning': { color: '#d97706', bg: '#fef3c7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
+        'error': { color: '#dc2626', bg: '#fee2e2', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>` },
+        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>` },
         'loading': { color: '#0284c7', bg: '#f0f9ff', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>` }
     };
 
@@ -2012,26 +2133,50 @@ function closeMessageModal() {
 }
 
 function exportDailyReport() {
-    const key = selectedDateKey;
-    const slots = appointments[key] || [];
+    const startInput = document.getElementById('dash-date-start');
+    const endInput = document.getElementById('dash-date-end');
 
-    if (slots.length === 0) return showToast('Nada para exportar.', 'warning');
+    let startDate = startInput && startInput.value ? startInput.value : selectedDateKey;
+    let endDate = endInput && endInput.value ? endInput.value : startDate;
+    if (startDate > endDate && endDate) endDate = startDate;
 
-    const headers = ["Data", "Hora", "Unidade", "Sala", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "Detalhe"];
+    const locFilter = document.getElementById('location-filter').value;
+    const roomFilter = document.getElementById('room-filter').value;
+    const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
+
+    let slots = [];
+    Object.keys(appointments).forEach(dateKey => {
+        if (dateKey >= startDate && dateKey <= endDate) {
+            slots = slots.concat(appointments[dateKey]);
+        }
+    });
+
+    if (slots.length === 0) return showToast('Nada para exportar no período.', 'warning');
+
+    slots = slots.filter(s => {
+        if (locFilter !== 'ALL' && s.location !== locFilter) return false;
+        if (roomFilter !== 'ALL' && String(s.room) !== roomFilter) return false;
+        if (specFilter !== 'ALL' && s.specialty !== specFilter) return false;
+        return true;
+    });
+
+    if (slots.length === 0) return showToast('Nenhuma vaga correspondente aos filtros.', 'warning');
+
+    const headers = ["Data", "Hora", "Unidade", "Sala", "Tipo", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento"];
     const rows = slots.map(s => {
         let procFormatted = s.procedure;
         try {
             if (s.procedure && (s.procedure.startsWith('[') || s.procedure.startsWith('{'))) {
                 const parsed = JSON.parse(s.procedure);
-                if (Array.isArray(parsed)) {
-                    procFormatted = parsed.map(p => `${p.name} (${p.regulated ? 'Reg' : 'Int'})`).join('; ');
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    procFormatted = `${parsed[0].name} (${parsed[0].regulated ? 'Reg' : 'Int'})`;
                 }
             }
-        } catch (e) { console.warn("Erro ao formatar procedimento export:", e); }
+        } catch (e) { console.warn("Erro formatação", e); }
 
         return [
-            key, s.time, s.location, s.room, s.status, s.patient, s.record, s.contract,
-            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted, s.detail
+            s.date || "?", s.time, s.location, s.room, s.specialty || '', s.status, s.patient, s.record, s.contract,
+            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted
         ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
     });
 
@@ -2040,7 +2185,7 @@ function exportDailyReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Relatorio_${key}.csv`;
+    link.download = `Relatorio_${startDate === endDate ? startDate : startDate + '_a_' + endDate}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

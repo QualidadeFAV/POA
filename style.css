@@ -365,6 +365,7 @@ body {
     font-weight: 800;
     background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.5px;
 }
@@ -410,7 +411,8 @@ body {
 
 /* --- STATS & KPI --- */
 .global-stats-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 24px;
     margin-bottom: 24px;
 }
@@ -802,6 +804,7 @@ body {
     backdrop-filter: blur(4px);
     display: none;
     align-items: center;
+    /* Voltou para o centro! */
     justify-content: center;
 }
 
@@ -868,7 +871,8 @@ body {
 }
 
 .modal-body {
-    padding: 32px 24px;
+    padding: 24px;
+    /* Retiramos o padding-bottom gigante */
     overflow-y: auto;
 }
 
@@ -1001,4 +1005,49 @@ body {
 
 .flatpickr-day.selected.has-free-slots::after {
     background-color: #fff;
+}
+
+/* --- TOOLTIPS CUSTOMIZADAS (HOVER NOS CARDS) --- */
+.tooltip-container {
+    position: relative;
+}
+
+.custom-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: #0284c7;
+    /* Azul Sky 600 (Cor Primária do Dash) */
+    color: #ffffff;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 10px 15px -3px rgba(2, 132, 199, 0.3);
+    z-index: 100;
+    pointer-events: none;
+    width: 180px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* A setinha apontando para baixo */
+.custom-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -6px;
+    border-width: 6px;
+    border-style: solid;
+    border-color: #0284c7 transparent transparent transparent;
+}
+
+/* Ativa a animação ao passar o mouse */
+.tooltip-container:hover .custom-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-8px);
 }
