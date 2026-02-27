@@ -338,26 +338,68 @@ body {
 .system-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
 }
 
-.logo-box {
-    width: 36px;
-    height: 36px;
-    background: var(--primary);
-    border-radius: 8px;
+.brand-logo {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    border-radius: 12px;
     display: grid;
     place-items: center;
     color: white;
-    font-weight: 700;
-    font-size: 1.2rem;
+    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
 }
 
-.brand-name {
-    font-weight: 600;
-    font-size: 1.1rem;
-    color: var(--text-main);
-    letter-spacing: -0.01em;
+.brand-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.brand-title {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.1;
+    letter-spacing: -0.5px;
+}
+
+.brand-subtitle {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+}
+
+/* Novo título da Sidebar */
+.sidebar-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--border);
+}
+
+.sidebar-header-title span {
+    font-weight: 800;
+    color: #0f172a;
+    font-size: 1.25rem;
+    letter-spacing: -0.5px;
+}
+
+.sht-icon {
+    color: var(--primary-dark);
+    background: var(--primary-light);
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
 }
 
 .elegant-title {
@@ -824,6 +866,10 @@ body {
 
 #login-modal {
     z-index: 9999 !important;
+    background: #e2e8f0 !important;
+    /* Cinza sólido que tampa o sistema todo */
+    backdrop-filter: none !important;
+    /* Tira o desfoque */
 }
 
 .modal-card {

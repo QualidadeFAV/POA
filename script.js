@@ -79,7 +79,9 @@ function jsonp(url) {
 
 // --- CENTRAL DE REQUISIÇÕES GET ---
 async function apiGet(params = {}) {
-    if (params.type !== 'verify' && !currentUserToken) {
+    // Permitir o carregamento de procedimentos mesmo sem token inicial 
+    // ou garantir que o login venha antes de tudo.
+    if (params.type !== 'verify' && params.type !== 'procedures' && !currentUserToken) {
         showToast("Sessão expirada. Faça login novamente.", "error");
         requestToken(null, "Sessão expirada");
         throw new Error("Token ausente no frontend");
@@ -87,7 +89,7 @@ async function apiGet(params = {}) {
 
     const query = new URLSearchParams({
         ...params,
-        token: params.token || currentUserToken
+        token: params.token || currentUserToken || "" // Evita undefined na URL
     });
 
     return jsonp(`${API_URL}?${query.toString()}`);
@@ -518,7 +520,14 @@ async function attemptLogin() {
             currentUserName = data.user.name;
 
             closeLoginModal();
-            initDataFlow(); // Carrega a agenda após o login sucesso
+
+            // Executa a ação pendente se houver, senão carrega o fluxo padrão
+            if (pendingAction) {
+                pendingAction();
+                pendingAction = null;
+            } else {
+                initDataFlow();
+            }
         } else {
             throw new Error("Token inválido");
         }
@@ -534,6 +543,13 @@ async function attemptLogin() {
 function handleLoginKey(e) { if (e.key === 'Enter') attemptLogin(); }
 
 function requestToken(callback, customTitle = null) {
+    // Se o usuário já tem um token salvo na sessão, executa o callback direto
+    if (currentUserToken) {
+        if (callback) callback();
+        return;
+    }
+
+    // Caso contrário, abre o modal de login (comportamento original para o primeiro acesso)
     pendingAction = callback;
     const modal = document.getElementById('login-modal');
     const input = document.getElementById('login-token');
@@ -541,7 +557,6 @@ function requestToken(callback, customTitle = null) {
     input.value = '';
     document.getElementById('login-error').style.display = 'none';
     input.style.borderColor = '';
-    input.style.color = '';
     modal.style.display = 'flex';
     input.focus();
 }
@@ -594,10 +609,21 @@ function executeSwitch(view) {
 async function initData() {
     const splash = document.getElementById('app-splash-screen');
 
-    // Se não tem token logado, remove a tela de loading imediatamente e pede login
     if (!currentUserToken) {
-        if (splash) splash.remove();
-        requestToken(null, "Bem-vindo ao GovCirúrgica");
+        // Apenas ESCONDE o splash para mostrar o login
+        if (splash) {
+            splash.style.opacity = '0';
+            setTimeout(() => { splash.style.display = 'none'; }, 500);
+        }
+
+        requestToken(() => {
+            // MOSTRA o splash de volta quando o login der certo
+            if (splash) {
+                splash.style.display = 'flex';
+                splash.style.opacity = '1';
+            }
+            initDataFlow();
+        }, "Bem-vindo ao GovCirúrgica");
         return;
     }
     initDataFlow();
@@ -654,7 +680,7 @@ async function initDataFlow() {
     const splash = document.getElementById('app-splash-screen');
     if (splash) {
         splash.style.opacity = '0';
-        setTimeout(() => { splash.remove(); }, 500);
+        setTimeout(() => { splash.style.display = 'none'; }, 500); // Esconde em vez de remover
     }
 
     updateFilterOptions();
@@ -1451,65 +1477,9 @@ function updateProcedureSelectOptions(specialtyGroup, currentProcName = '') {
 function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
 
 function checkWarning() {
-    const contract = document.getElementById('bk-contract').value;
+    // Função esvaziada. O aviso de limite de governança foi desativado.
     const warningBox = document.getElementById('warning-box');
-    const msgText = document.getElementById('warning-msg-text');
-
-    if (!contract || CONTRACTS.MUNICIPAL.includes(contract)) {
-        warningBox.style.display = 'none';
-        return;
-    }
-
-    let newReg = 0;
-    let newInt = 0;
-    const nameInput = document.getElementById('bk-procedure');
-    if (nameInput && nameInput.value.trim()) {
-        const isReg = document.getElementById('bk-proc-regulated').checked;
-        if (isReg) newReg = 1; else newInt = 1;
-    }
-
-    if (newReg === 0 && newInt === 0) newReg = 1;
-
-    const monthKey = selectedDateKey.substring(0, 7);
-    const stats = DASH_CACHE[monthKey];
-
-    if (!stats || stats.total === 0) return;
-
-    let currentTotalReg = stats.counts.Regulado.Total;
-    let currentTotalInt = stats.counts.Interno.Total;
-
-    let simTotalReg = currentTotalReg + newReg;
-    let simTotalInt = currentTotalInt + newInt;
-    let simTotal = simTotalReg + simTotalInt;
-
-    if (simTotal === 0) simTotal = 1;
-
-    const pctReg = (simTotalReg / simTotal) * 100;
-    const pctInt = (simTotalInt / simTotal) * 100;
-
-    let showWarning = false;
-    let msg = "";
-
-    if (newInt > 0 && pctInt > 40) {
-        showWarning = true;
-        msg = `Atenção: Procedimentos Internos atingirão <b>${pctInt.toFixed(1)}%</b> (Limite: 40%)`;
-    } else if (newInt > 0 && pctReg < 60) {
-        showWarning = true;
-        msg = `Atenção: Regulados cairão para <b>${pctReg.toFixed(1)}%</b> (Meta: >60%)`;
-    }
-
-    if (showWarning) {
-        warningBox.style.display = 'flex';
-        if (msgText) msgText.innerHTML = msg;
-        else {
-            const div = document.createElement('div');
-            div.id = 'warning-msg-text';
-            div.innerHTML = msg;
-            warningBox.appendChild(div);
-        }
-    } else {
-        warningBox.style.display = 'none';
-    }
+    if (warningBox) warningBox.style.display = 'none';
 }
 
 function confirmBookingFromModal() {
@@ -1563,8 +1533,8 @@ function confirmBookingFromModal() {
                         regulated: mainRegulatedStatus,
                         procedure: procedureJSON,
                         detail: "",
-                        eye: ""
-                        // createdBy removido: o backend infere do token
+                        eye: "",
+                        updatedBy: currentUserName // <--- ADICIONE ESTA LINHA AQUI!
                     };
                 }
             });
@@ -1646,7 +1616,8 @@ function cancelSlotBooking() {
                         ...appointments[dateKey][slotIndex],
                         status: 'LIVRE',
                         patient: '', record: '', contract: '', regulated: null,
-                        procedure: '', detail: '', eye: ''
+                        procedure: '', detail: '', eye: '',
+                        updatedBy: currentUserName // <--- ADICIONE ESTA LINHA AQUI TAMBÉM!
                     };
                 }
             });
@@ -2024,7 +1995,6 @@ function generateDashboardPDF() {
             <div style="border-bottom: 2px solid #0284c7; padding-bottom: 10px; margin-bottom: 20px;">
                 <h1 style="color: #1e293b; font-size: 24px; margin: 0;">Relatório de Governança Cirúrgica</h1>
                 <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período de Referência: ${monthVal}</div>
-                <div style="color: #dc2626; font-size: 11px; margin-top: 2px;">*Metas calculadas sobre total de PROCEDIMENTOS (não vagas)</div>
             </div>
 
             <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
@@ -2157,69 +2127,137 @@ function closeMessageModal() {
     messageCallback = null;
 }
 
-function exportDailyReport() {
-    const startInput = document.getElementById('dash-date-start');
-    const endInput = document.getElementById('dash-date-end');
+// --- SISTEMA DE EXPORTAÇÃO MODAL ---
+function openExportModal() {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
 
-    let startDate = startInput && startInput.value ? startInput.value : selectedDateKey;
-    let endDate = endInput && endInput.value ? endInput.value : startDate;
-    if (startDate > endDate && endDate) endDate = startDate;
+    // Sugere o mês atual por padrão
+    const firstDay = `${y}-${m}-01`;
+    const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
+    const lastDayStr = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
 
-    const locFilter = document.getElementById('location-filter').value;
-    const roomFilter = document.getElementById('room-filter').value;
-    const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
+    document.getElementById('export-start').value = firstDay;
+    document.getElementById('export-end').value = lastDayStr;
+    document.getElementById('export-modal').classList.add('open');
+}
 
-    let slots = [];
-    Object.keys(appointments).forEach(dateKey => {
-        if (dateKey >= startDate && dateKey <= endDate) {
-            slots = slots.concat(appointments[dateKey]);
+function closeExportModal() {
+    document.getElementById('export-modal').classList.remove('open');
+}
+
+async function executeExport() {
+    let startDate = document.getElementById('export-start').value;
+    let endDate = document.getElementById('export-end').value;
+
+    if (!startDate || !endDate) return showToast('Selecione as datas.', 'warning');
+
+    if (startDate > endDate) {
+        const temp = startDate;
+        startDate = endDate;
+        endDate = temp;
+    }
+
+    const btn = document.querySelector('#export-modal .btn-primary');
+    const originalText = btn.innerText;
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Gerando...`;
+    btn.disabled = true;
+
+    try {
+        // 1. Descobre todos os meses envolvidos no período e sincroniza
+        // Isso evita que o CSV venha vazio se você tentar baixar um mês que não clicou ainda
+        let startD = new Date(startDate + "T00:00:00");
+        let endD = new Date(endDate + "T00:00:00");
+        let monthsToFetch = [];
+
+        let currentD = new Date(startD);
+        while (currentD <= endD || (currentD.getMonth() === endD.getMonth() && currentD.getFullYear() === endD.getFullYear())) {
+            let mKey = `${currentD.getFullYear()}-${String(currentD.getMonth() + 1).padStart(2, '0')}`;
+            if (!monthsToFetch.includes(mKey)) monthsToFetch.push(mKey);
+            currentD.setMonth(currentD.getMonth() + 1);
         }
-    });
 
-    if (slots.length === 0) return showToast('Nada para exportar no período.', 'warning');
+        for (const mKey of monthsToFetch) {
+            await syncMonthData(`${mKey}-01`);
+        }
 
-    slots = slots.filter(s => {
-        if (locFilter !== 'ALL' && s.location !== locFilter) return false;
-        if (roomFilter !== 'ALL' && String(s.room) !== roomFilter) return false;
-        if (specFilter !== 'ALL' && s.specialty !== specFilter) return false;
-        return true;
-    });
+        // 2. Filtra os dados com base nos seletores da barra lateral
+        const locFilter = document.getElementById('location-filter').value;
+        const roomFilter = document.getElementById('room-filter').value;
+        const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
 
-    if (slots.length === 0) return showToast('Nenhuma vaga correspondente aos filtros.', 'warning');
-
-    const headers = ["Data", "Hora", "Unidade", "Sala", "Tipo", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento"];
-    const rows = slots.map(s => {
-        let procFormatted = s.procedure;
-        try {
-            if (s.procedure && (s.procedure.startsWith('[') || s.procedure.startsWith('{'))) {
-                const parsed = JSON.parse(s.procedure);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    procFormatted = `${parsed[0].name} (${parsed[0].regulated ? 'Reg' : 'Int'})`;
-                }
+        let slots = [];
+        Object.keys(appointments).forEach(dateKey => {
+            if (dateKey >= startDate && dateKey <= endDate) {
+                slots = slots.concat(appointments[dateKey]);
             }
-        } catch (e) { console.warn("Erro formatação", e); }
+        });
 
-        return [
-            s.date || "?", s.time, s.location, s.room, s.specialty || '', s.status, s.patient, s.record, s.contract,
-            (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted
-        ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
-    });
+        slots = slots.filter(s => {
+            if (String(s.status).toUpperCase() === 'EXCLUIDO') return false;
+            if (locFilter !== 'ALL' && s.location !== locFilter) return false;
+            if (roomFilter !== 'ALL' && String(s.room) !== roomFilter) return false;
+            if (specFilter !== 'ALL' && s.specialty !== specFilter) return false;
+            return true;
+        });
 
-    const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Relatorio_${startDate === endDate ? startDate : startDate + '_a_' + endDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        if (slots.length === 0) {
+            showToast('Nenhuma vaga correspondente encontrada no período.', 'warning');
+            return;
+        }
+
+        // 3. Ordena os slots por data e hora
+        slots.sort((a, b) => {
+            if (a.date !== b.date) return a.date.localeCompare(b.date);
+            return a.time.localeCompare(b.time);
+        });
+
+        // 4. Monta e baixa o arquivo CSV
+        const headers = ["Data", "Hora", "Unidade", "Sala", "Tipo", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "CriadoPor"];
+        const rows = slots.map(s => {
+            let procFormatted = s.procedure;
+            try {
+                if (s.procedure && (s.procedure.startsWith('[') || s.procedure.startsWith('{'))) {
+                    const parsed = JSON.parse(s.procedure);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        procFormatted = `${parsed[0].name} (${parsed[0].regulated ? 'Reg' : 'Int'})`;
+                    }
+                }
+            } catch (e) { console.warn("Erro formatação", e); }
+
+            return [
+                formatDateBR(s.date) || "?", s.time, s.location, s.room, s.specialty || '', s.status, s.patient, s.record, s.contract,
+                (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted, s.updatedBy || s.createdBy
+            ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
+        });
+
+        const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `Relatorio_${startDate}_a_${endDate}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        closeExportModal();
+
+    } catch (err) {
+        console.error("Erro exportação:", err);
+        showToast('Erro ao exportar.', 'error');
+    } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
 }
 
 window.onclick = function (event) {
     if (event.target === document.getElementById('login-modal')) closeLoginModal();
     if (event.target === document.getElementById('booking-modal')) closeModal();
     if (event.target === document.getElementById('message-modal')) closeMessageModal();
+    if (event.target === document.getElementById('export-modal')) closeExportModal(); // <- NOVA LINHA AQUI
 }
 
 // Inicia
