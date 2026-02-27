@@ -1003,9 +1003,10 @@ function renderSlotsList() {
     });
 }
 
-// Geração em lote
-function bulkCreateSlots() {
+// Geração em lote (Com Período de Dias Úteis e Lotes de 10)
+async function bulkCreateSlots() {
     const dateVal = document.getElementById('bulk-date').value;
+    const endDateVal = document.getElementById('bulk-date-end').value || dateVal; // Se não tiver data final, usa a inicial
     const location = document.getElementById('bulk-location').value;
     const room = document.getElementById('bulk-room').value.trim();
     const group = document.getElementById('bulk-group').value;
@@ -1015,7 +1016,11 @@ function bulkCreateSlots() {
     const qty = parseInt(document.getElementById('bulk-qty').value);
 
     if (!dateVal || !startTime || !endTime || !doctor || !room || isNaN(qty) || qty < 1) {
-        return showToast('Preencha todos os campos, incluindo a Sala.', 'error');
+        return showToast('Preencha todos os campos obrigatórios.', 'error');
+    }
+
+    if (endDateVal < dateVal) {
+        return showToast('A data final não pode ser anterior à inicial.', 'error');
     }
 
     const [h1, m1] = startTime.split(':').map(Number);
@@ -1030,22 +1035,52 @@ function bulkCreateSlots() {
     const slotDuration = (endMins - startMins) / qty;
     let slotsToSend = [];
 
-    for (let i = 0; i < qty; i++) {
-        const currentSlotMins = Math.round(startMins + (i * slotDuration));
-        const h = Math.floor(currentSlotMins / 60);
-        const m = currentSlotMins % 60;
-        const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    // --- LÓGICA DO PERÍODO E DIAS ÚTEIS ---
+    let currentDate = new Date(dateVal + "T00:00:00");
+    let lastDate = new Date(endDateVal + "T00:00:00");
+    let validDaysCount = 0;
 
-        slotsToSend.push({
-            id: Date.now() + i,
-            date: dateVal,
-            time: timeStr,
-            room: room,
-            location: location,
-            doctor: doctor,
-            specialty: group,
-            procedure: group
-        });
+    // Loop que percorre todos os dias do período
+    while (currentDate <= lastDate) {
+        const dayOfWeek = currentDate.getDay();
+
+        // 0 = Domingo, 6 = Sábado (Avança apenas se for dia útil)
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            validDaysCount++;
+
+            // Formata a data atual do loop para YYYY-MM-DD
+            const y = currentDate.getFullYear();
+            const m = String(currentDate.getMonth() + 1).padStart(2, '0');
+            const d = String(currentDate.getDate()).padStart(2, '0');
+            const currentDateStr = `${y}-${m}-${d}`;
+
+            // Gera as vagas para este dia específico
+            for (let i = 0; i < qty; i++) {
+                const currentSlotMins = Math.round(startMins + (i * slotDuration));
+                const h = Math.floor(currentSlotMins / 60);
+                const min = currentSlotMins % 60;
+                const timeStr = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+
+                slotsToSend.push({
+                    // ID ultra-único misturando tempo + math random (evita duplicados na geração ultra rápida)
+                    id: Date.now() + Math.floor(Math.random() * 100000) + i,
+                    date: currentDateStr,
+                    time: timeStr,
+                    room: room,
+                    location: location,
+                    doctor: doctor,
+                    specialty: group,
+                    procedure: group
+                });
+            }
+        }
+
+        // Adiciona 1 dia e avança no loop
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    if (slotsToSend.length === 0) {
+        return showToast('Não existem dias úteis no período selecionado.', 'warning');
     }
 
     const btn = document.querySelector('button[onclick="bulkCreateSlots()"]');
@@ -1054,42 +1089,55 @@ function bulkCreateSlots() {
     btn.disabled = true;
     btn.style.opacity = '0.7';
 
-    const payload = {
-        action: "create_bulk",
-        data: slotsToSend
-    };
+    try {
+        // SOLUÇÃO DE PERFORMANCE: Lotes de 10 em 10 vagas!
+        const chunkSize = 10;
+        for (let i = 0; i < slotsToSend.length; i += chunkSize) {
+            const chunk = slotsToSend.slice(i, i + chunkSize);
+            const payload = {
+                action: "create_bulk",
+                data: chunk
+            };
 
-    sendUpdateToSheet(payload).then(resp => {
-        btn.innerHTML = originalHtml;
-        btn.disabled = false;
-        btn.style.opacity = '1';
-
-        if (resp && resp.status === 'success') {
-            showToast(`${qty} vagas criadas!`, 'success');
-
-            document.getElementById('bulk-room').value = '';
-            document.getElementById('bulk-doctor').value = '';
-            document.getElementById('bulk-date').value = '';
-            document.getElementById('bulk-qty').value = '1';
-            document.getElementById('bulk-start-time').value = '07:00';
-            document.getElementById('bulk-end-time').value = '12:00';
-
-            processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE' })));
-
-            selectedDateKey = dateVal;
-            document.getElementById('sidebar-date-picker').value = selectedDateKey;
-            renderSlotsList();
-            updateKPIs();
-            executeSwitch('booking');
-        } else {
-            showToast('Erro ao processar criação.', 'error');
+            // Aguarda o Google salvar este lote antes de enviar o próximo
+            const resp = await sendUpdateToSheet(payload);
+            if (!resp || resp.status !== 'success') {
+                throw new Error("Falha no servidor ao processar o lote.");
+            }
         }
-    }).catch(err => {
+
+        showToast(`${slotsToSend.length} vagas criadas em ${validDaysCount} dia(s)!`, 'success');
+
+        // Limpar formulário
+        document.getElementById('bulk-room').value = '';
+        document.getElementById('bulk-doctor').value = '';
+        document.getElementById('bulk-date').value = '';
+        document.getElementById('bulk-date-end').value = '';
+        document.getElementById('bulk-qty').value = '1';
+        document.getElementById('bulk-start-time').value = '07:00';
+        document.getElementById('bulk-end-time').value = '12:00';
+
+        // Atualizar cache local
+        processRawData(slotsToSend.map(s => ({ ...s, status: 'LIVRE' })));
+
+        // Recarregar a tela para a Data Inicial escolhida
+        selectedDateKey = dateVal;
+        document.getElementById('sidebar-date-picker').value = selectedDateKey;
+
+        // Força a UI a pintar as bolinhas verdes nos dias do calendário
+        updateCalendarMarkers();
+        renderSlotsList();
+        updateKPIs();
+        executeSwitch('booking');
+
+    } catch (err) {
+        console.error(err);
+        showToast('Erro ao processar criação.', 'error');
+    } finally {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
         btn.style.opacity = '1';
-        showToast('Erro no servidor.', 'error');
-    });
+    }
 }
 
 // Admin Table
