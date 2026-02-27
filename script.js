@@ -1,13 +1,12 @@
 const API_URL = "https://script.google.com/macros/s/AKfycbw5FgjU_NeBebC82cyMXb8-sYiyql5P9iw5ujdbQTnu7w0hMNCqTFwxPocIPh2bQVg/exec";
 
-// --- DADOS GLOBAIS ---
+// Dados globais
 let appointments = {};
 
-// --- CACHE DE PERFORMANCE ---
+// Cache
 const DASH_CACHE = {};
-// Estrutura: { "2026-02": { total: 100, occupied: 50, loaded: true, counts: {...} } }
 
-// CONFIGURAÇÃO DA DATA INICIAL (HOJE)
+// Data atual
 const todayDate = new Date();
 const yInit = todayDate.getFullYear();
 const mInit = String(todayDate.getMonth() + 1).padStart(2, '0');
@@ -18,40 +17,36 @@ let currentView = 'booking';
 let currentSlotId = null;
 let currentDateKey = null;
 
-// FLATPICKR INSTANCE
+// Instâncias externas
 let fpInstance = null;
-
-// CHART INSTANCES
 let chartLocInstance = null;
 let chartSpecInstance = null;
 
-// --- ESTADO ---
+// Estados de movimento
 let isMoveMode = false;
 let clipboardPatient = null;
 
-
-// --- CONTROLE DE SESSÃO ---
+// Sessão
 let currentUserToken = null;
 let currentUserRole = null;
 let currentUserName = null;
 let pendingAction = null;
 
-// --- CONSTANTES DE CONTRATOS ---
+// Contratos
 const CONTRACTS = {
     LOCALS: ["ESTADO", "SERRA", "SALGUEIRO"],
     MUNICIPAL: ["RECIFE", "JABOATÃO"]
 };
 
-// --- CONFIGURAÇÃO DE PROCEDIMENTOS DINÂMICOS ---
+// Procedimentos por especialidade
 let SPECIALTY_PROCEDURES = {
     "CIRURGIA": [],
     "LASER": []
 };
 
-// --- HELPER PARA CORS (JSONP) ---
+// Helper JSONP (CORS)
 function jsonp(url) {
     return new Promise((resolve, reject) => {
-        // Garante um nome único para o callback
         const callbackName = "cb_" + Math.round(Math.random() * 1000000);
 
         window[callbackName] = data => {
@@ -63,7 +58,6 @@ function jsonp(url) {
 
         const script = document.createElement("script");
         script.id = callbackName;
-        // Verifica se a URL já tem interrogação
         const connector = url.includes('?') ? '&' : '?';
         script.src = `${url}${connector}callback=${callbackName}`;
 
@@ -77,10 +71,8 @@ function jsonp(url) {
     });
 }
 
-// --- CENTRAL DE REQUISIÇÕES GET ---
+// Requisições GET centralizadas
 async function apiGet(params = {}) {
-    // Permitir o carregamento de procedimentos mesmo sem token inicial 
-    // ou garantir que o login venha antes de tudo.
     if (params.type !== 'verify' && params.type !== 'procedures' && !currentUserToken) {
         showToast("Sessão expirada. Faça login novamente.", "error");
         requestToken(null, "Sessão expirada");
@@ -89,13 +81,13 @@ async function apiGet(params = {}) {
 
     const query = new URLSearchParams({
         ...params,
-        token: params.token || currentUserToken || "" // Evita undefined na URL
+        token: params.token || currentUserToken || ""
     });
 
     return jsonp(`${API_URL}?${query.toString()}`);
 }
 
-// --- GUARD GLOBAL PARA AÇÕES ---
+// Guard de autenticação
 function requireAuth() {
     if (!currentUserToken) {
         requestToken(null, "Sessão expirada");
@@ -103,7 +95,7 @@ function requireAuth() {
     }
 }
 
-// --- BUSCAR PROCEDIMENTOS ---
+// Busca procedimentos
 async function fetchProcedures() {
     try {
         const data = await apiGet({ type: 'procedures' });
@@ -111,7 +103,7 @@ async function fetchProcedures() {
     } catch (error) { console.error("Falha ao carregar procedimentos:", error); }
 }
 
-// --- INDICADOR DE CARREGAMENTO (CURSOR) ---
+// Indicador de carregamento
 function setLoading(isLoading, isBlocking = false) {
     const body = document.body;
     if (isLoading && isBlocking) {
@@ -121,7 +113,7 @@ function setLoading(isLoading, isBlocking = false) {
     }
 }
 
-// --- NOTIFICAÇÃO TOAST (CONFIRMAÇÃO VISUAL) ---
+// Toast de notificação
 function showToast(message, type = 'success') {
     let toast = document.getElementById('app-toast');
     if (!toast) {
@@ -153,15 +145,15 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-// --- FORMATADOR DE DATA BR ---
+// Formatação data BR
 function formatDateBR(dateString) {
     if (!dateString) return '';
     const parts = dateString.split('-');
-    if (parts.length !== 3) return dateString; // Fallback
+    if (parts.length !== 3) return dateString;
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
-// --- FUNÇÃO DE ANIMAÇÃO (NUMBERS GO UP) ---
+// Animação de métricas
 function animateMetric(elementId, targetValue, isPercentage = false) {
     const element = document.getElementById(elementId);
     if (!element) return;
@@ -205,7 +197,7 @@ function animateMetric(elementId, targetValue, isPercentage = false) {
     requestAnimationFrame(update);
 }
 
-// --- FUNÇÃO AUXILIAR PARA SUB-ESTATÍSTICAS ---
+// Animação sub-métricas
 function animateSubMetric(elementId, val, groupTotal) {
     const element = document.getElementById(elementId);
     if (!element) return;
@@ -216,9 +208,7 @@ function animateSubMetric(elementId, val, groupTotal) {
     element.innerText = finalText;
 }
 
-// --- NOVAS FUNÇÕES AUXILIARES DE PROCEDIMENTOS ---
-
-// Helper para ler/escrever os procedimentos do slot (compatível com JSON novo e String antiga)
+// Extração de procedimentos do slot
 function getProceduresFromSlot(slot) {
     if (!slot.procedure) return [];
 
@@ -227,12 +217,11 @@ function getProceduresFromSlot(slot) {
         if (Array.isArray(parsed)) return parsed;
         return [{ name: slot.procedure, regulated: (slot.regulated === true || slot.regulated === "TRUE" || slot.regulated === "YES") }];
     } catch (e) {
-        // Fallback: é uma string antiga
         return [{ name: slot.procedure, regulated: (slot.regulated === true || slot.regulated === "TRUE" || slot.regulated === "YES") }];
     }
 }
 
-// --- FUNÇÃO CENTRAL DE CONTROLE DE CONTRATO ---
+// Controle de contrato
 function handleContractChange() {
     const contract = document.getElementById('bk-contract').value;
     const isMunicipal = CONTRACTS.MUNICIPAL.includes(contract);
@@ -255,25 +244,22 @@ function handleContractChange() {
     toggleRegulated();
 }
 
-// --- FUNÇÃO PARA MOSTRAR/ESCONDER MOTIVOS INTERNOS ---
+// Toggle regulado/interno
 function toggleRegulated() {
-    checkWarning(); // Mantém o alerta do gráfico funcionando
+    checkWarning();
     const isReg = document.getElementById('bk-proc-regulated').checked;
     const contract = document.getElementById('bk-contract').value;
     const container = document.getElementById('bk-internal-type-container');
 
-    // MUDANÇA: Tiramos a obrigatoriedade de ter um contrato já selecionado
-    // Se NÃO for regulado e NÃO for municipal, mostra as opções imediatamente
     if (!isReg && !CONTRACTS.MUNICIPAL.includes(contract)) {
         container.style.display = 'block';
     } else {
         container.style.display = 'none';
-        // Limpa a seleção
         document.querySelectorAll('input[name="bk-internal-type"]').forEach(r => r.checked = false);
     }
 }
 
-
+// Cálculo cache mensal
 function recalculateMonthCache(monthKey) {
     if (!monthKey) return;
 
@@ -320,14 +306,12 @@ function recalculateMonthCache(monthKey) {
                                     counts.Interno.Total++;
                                     if (counts.Interno[c] !== undefined) counts.Interno[c]++;
 
-                                    // NOVA CONTAGEM DE TIPO
                                     if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
                                     else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
-                                    else counts.InternoTypes[c].Emergencia++; // Fallback pra antigos
+                                    else counts.InternoTypes[c].Emergencia++;
                                 }
                             });
                         } else {
-                            // Fallback
                             let isReg = (s.regulated === true || s.regulated === "TRUE" || s.regulated === "YES");
                             if (isReg) {
                                 counts.Regulado.Total++;
@@ -335,8 +319,6 @@ function recalculateMonthCache(monthKey) {
                             } else {
                                 counts.Interno.Total++;
                                 if (counts.Interno[c] !== undefined) counts.Interno[c]++;
-
-                                // NOVA CONTAGEM DE TIPO (Fallback legados)
                                 counts.InternoTypes[c].Emergencia++;
                             }
                         }
@@ -352,13 +334,10 @@ function recalculateMonthCache(monthKey) {
     DASH_CACHE[monthKey].occupied = occupiedSlots;
     DASH_CACHE[monthKey].counts = counts;
 
-    // Atualiza marcadores visuais sempre que recalcular cache
     updateCalendarMarkers();
 }
 
-// --- COMUNICAÇÃO COM O BACKEND (GOOGLE SHEETS) ---
-
-// 2. PROCESSAMENTO DE DADOS (RAW -> APP)
+// Processamento de dados brutos
 function processRawData(rows, forceDateKey = null) {
     if ((!rows || rows.length === 0) && forceDateKey) {
         if (!appointments[forceDateKey]) appointments[forceDateKey] = [];
@@ -391,7 +370,7 @@ function processRawData(rows, forceDateKey = null) {
                 detail: row.detail,
                 eye: row.eye,
                 createdBy: row.createdBy || row.created_by,
-                updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "") // Fallback para legado
+                updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "")
             });
         } else {
             const idx = appointments[key].findIndex(s => String(s.id) === String(row.id));
@@ -407,7 +386,7 @@ function processRawData(rows, forceDateKey = null) {
                     detail: row.detail,
                     eye: row.eye,
                     createdBy: row.createdBy || row.created_by,
-                    updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "") // Fallback para legado
+                    updatedBy: row.updatedBy || (row.status === 'OCUPADO' ? (row.createdBy || row.created_by) : "")
                 };
             }
         }
@@ -420,7 +399,7 @@ function processRawData(rows, forceDateKey = null) {
     }
 }
 
-// 3. BUSCAR DADOS DE UM DIA ESPECÍFICO
+// Busca dados por dia
 async function fetchRemoteData(dateKey, isBackground = false) {
     if (!isBackground) setLoading(true);
     try {
@@ -440,7 +419,7 @@ async function fetchRemoteData(dateKey, isBackground = false) {
     }
 }
 
-// 4. SINCRONIZAR MÊS INTEIRO
+// Sincroniza mês
 async function syncMonthData(baseDateKey) {
     if (!baseDateKey) return;
     const parts = baseDateKey.split('-');
@@ -472,13 +451,12 @@ async function syncMonthData(baseDateKey) {
     }
 }
 
-// --- VERSÃO CORRIGIDA DA FUNÇÃO DE ENVIO ---
+// Envio para Sheets
 async function sendUpdateToSheet(payload) {
     try {
         requireAuth();
         payload.token = currentUserToken;
 
-        // Transformamos o payload num objeto de texto para a URL
         const params = new URLSearchParams();
         for (const key in payload) {
             if (typeof payload[key] === "object") {
@@ -488,8 +466,6 @@ async function sendUpdateToSheet(payload) {
             }
         }
 
-        // USAMOS JSONP (a função que já funciona no seu código) em vez de FETCH POST
-        // Isso ignora totalmente o erro de CORS e o erro 302/404
         const response = await jsonp(`${API_URL}?${params.toString()}`);
         return response;
     } catch (error) {
@@ -498,7 +474,7 @@ async function sendUpdateToSheet(payload) {
     }
 }
 
-// --- SISTEMA DE LOGIN ---
+// Login
 async function attemptLogin() {
     const input = document.getElementById('login-token');
     const val = input.value.trim();
@@ -511,7 +487,6 @@ async function attemptLogin() {
     btn.disabled = true;
 
     try {
-        // Agora usa apiGet (JSONP) para evitar erro de CORS no login
         const data = await apiGet({ type: 'verify', token: val });
 
         if (data.valid) {
@@ -521,7 +496,6 @@ async function attemptLogin() {
 
             closeLoginModal();
 
-            // Executa a ação pendente se houver, senão carrega o fluxo padrão
             if (pendingAction) {
                 pendingAction();
                 pendingAction = null;
@@ -542,14 +516,13 @@ async function attemptLogin() {
 
 function handleLoginKey(e) { if (e.key === 'Enter') attemptLogin(); }
 
+// Solicitação de token
 function requestToken(callback, customTitle = null) {
-    // Se o usuário já tem um token salvo na sessão, executa o callback direto
     if (currentUserToken) {
         if (callback) callback();
         return;
     }
 
-    // Caso contrário, abre o modal de login (comportamento original para o primeiro acesso)
     pendingAction = callback;
     const modal = document.getElementById('login-modal');
     const input = document.getElementById('login-token');
@@ -566,14 +539,11 @@ function closeLoginModal() {
     document.getElementById('login-token').value = '';
 }
 
-// --- NAVEGAÇÃO ---
-
+// Troca de visão
 function switchView(view) {
     if (view === 'admin') {
-        // Pede autorização para entrar no modo Gestor
         requestToken(() => executeSwitch('admin'), "Acesso Gestor");
     } else {
-        // Retorna para Agendamento mantendo o token da sessão
         executeSwitch('booking');
     }
 }
@@ -605,19 +575,17 @@ function executeSwitch(view) {
     }
 }
 
-// --- INICIALIZAÇÃO OTIMIZADA ---
+// Inicialização
 async function initData() {
     const splash = document.getElementById('app-splash-screen');
 
     if (!currentUserToken) {
-        // Apenas ESCONDE o splash para mostrar o login
         if (splash) {
             splash.style.opacity = '0';
             setTimeout(() => { splash.style.display = 'none'; }, 500);
         }
 
         requestToken(() => {
-            // MOSTRA o splash de volta quando o login der certo
             if (splash) {
                 splash.style.display = 'flex';
                 splash.style.opacity = '1';
@@ -680,7 +648,7 @@ async function initDataFlow() {
     const splash = document.getElementById('app-splash-screen');
     if (splash) {
         splash.style.opacity = '0';
-        setTimeout(() => { splash.style.display = 'none'; }, 500); // Esconde em vez de remover
+        setTimeout(() => { splash.style.display = 'none'; }, 500);
     }
 
     updateFilterOptions();
@@ -689,11 +657,10 @@ async function initDataFlow() {
     updateCalendarMarkers();
 }
 
-// ATUALIZA MARCADORES DO CALENDÁRIO (BOLINHA VERDE)
+// Marcadores do calendário
 function updateCalendarMarkers() {
     if (!fpInstance) return;
 
-    // Identifica dias com vagas livres
     const freeDates = [];
     Object.keys(appointments).forEach(key => {
         const slots = appointments[key];
@@ -701,16 +668,10 @@ function updateCalendarMarkers() {
         if (hasFree) freeDates.push(key);
     });
 
-    // Remove a classe customizada de todos os dias (limpeza)
     const days = document.querySelectorAll('.flatpickr-day');
     days.forEach(day => day.classList.remove('has-free-slots'));
 
-    // Adiciona a classe visual nos dias livres
-    // Flatpickr não tem API direta fácil para "addClassToDate", mas podemos redesenhar ou usar config.
-    // Uma forma eficiente é manipular via onDayCreate, mas para atualizar dinamicamente setamos o evento novamente.
-
     fpInstance.set('onDayCreate', function (dObj, dStr, fp, dayElem) {
-        // Formata a data do elemento dia para YYYY-MM-DD
         const date = dayElem.dateObj;
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -722,19 +683,13 @@ function updateCalendarMarkers() {
         }
     });
 
-    // Força redraw para aplicar o onDayCreate se já estiver aberto, ou prepara para próxima abertura
-    // (Flatpickr redesenha dias ao navegar, mas set('onDayCreate') não redesenha o mês atual automaticamente se nao mudar algo)
-    // Redraw hack:
     fpInstance.redraw();
 }
 
 function updateSidebarDate() {
-    // Atualiza input se mudou externamente (setas)
     if (fpInstance && fpInstance.input.value !== selectedDateKey) {
-        fpInstance.setDate(selectedDateKey, false); // false = não disparar onChange
+        fpInstance.setDate(selectedDateKey, false);
     }
-
-
 
     document.getElementById('room-filter').value = 'ALL';
     document.getElementById('location-filter').value = 'ALL';
@@ -742,46 +697,37 @@ function updateSidebarDate() {
     const monthKey = selectedDateKey.substring(0, 7);
 
     if (DASH_CACHE[monthKey] && DASH_CACHE[monthKey].loaded) {
-        updateFilterOptions(); // Garante filtros sincronizados ao trocar dia (cache) 
+        updateFilterOptions();
         renderSlotsList();
     } else {
-        // Carregamento de navegação não precisa bloquear cursor totalmente, mas ok ser breve.
-        // Se quiser bloquear: setLoading(true, true);
-        // Se quiser suave: setLoading(true, false);
         setLoading(true, false);
         syncMonthData(selectedDateKey).then(() => {
-            updateFilterOptions(); // Garante filtros sincronizados após sync
+            updateFilterOptions();
             renderSlotsList();
             setLoading(false);
         });
     }
 }
 
-// ATUALIZAÇÃO MANUAL (SEM POLLLING)
+// Atualização manual
 async function refreshData() {
-    // 1. Guarda estado dos filtros (já estão no DOM, mas garantindo)
-    // 2. Chama sync forçado (invalidate cache se quiser, mas syncMonthData ja faz fetch remoto)
-
     const btn = document.getElementById('btn-manual-refresh');
     if (btn) {
         btn.disabled = true;
         btn.style.opacity = '0.5';
         btn.style.cursor = 'wait';
-        // Opcional: Animar ícone
         const icon = btn.querySelector('svg');
         if (icon) icon.style.animation = 'spin 1s linear infinite';
     }
 
     try {
-        // Invalida cache do mês atual para forçar novo fetch
         const monthKey = selectedDateKey.substring(0, 7);
         if (DASH_CACHE[monthKey]) DASH_CACHE[monthKey].loaded = false;
 
         setLoading(true, false);
-        await syncMonthData(selectedDateKey); // Busca dados frescos
+        await syncMonthData(selectedDateKey);
 
-        // 3. Renderiza mantendo filtros
-        updateFilterOptions(); // Recalcula opções disponíveis
+        updateFilterOptions();
         renderSlotsList();
         updateKPIs();
         updateCalendarMarkers();
@@ -802,30 +748,19 @@ async function refreshData() {
     }
 }
 
-// --- VERIFICAÇÃO DE DISPONIBILIDADE (ANTI-COLISÃO) ---
+// Verificação de disponibilidade
 async function verifySlotAvailability(slotId, isBackground = false) {
-    // Para ser robusto com 15 users, o ideal seria um endpoint específico 'checkSlot'.
-    // Como estamos usando Sheets/GET geral, o melhor é forçar um refresh silencioso da data/mês 
-    // se quisermos certeza absoluta, OU confiar no 'syncMonthData' se ele foi chamado recentemente.
-    // Pela regra de negócio "Segurança no Clique", vamos fazer um fetch pontual dos dados atuais
-    // para garantir que 'appointments' esteja fresco.
-
-    // Invalida cache propositalmente
     const monthKey = selectedDateKey.substring(0, 7);
     if (DASH_CACHE[monthKey]) DASH_CACHE[monthKey].loaded = false;
 
-    // Se background, cursor wait mas NÃO blocking (se quiser) ou loading suave do botão
     setLoading(true, !isBackground);
     await syncMonthData(selectedDateKey);
     setLoading(false);
 
-    // Busca novamente o slot na memória atualizada
     let foundSlot = null;
     if (appointments[selectedDateKey]) {
         foundSlot = appointments[selectedDateKey].find(s => String(s.id) === String(slotId));
     }
-
-    if (!foundSlot) return null; // Slot sumiu (excluido?)
     return foundSlot;
 }
 
@@ -835,46 +770,37 @@ function changeDate(delta) {
     const y = current.getFullYear();
     const m = String(current.getMonth() + 1).padStart(2, '0');
     const d = String(current.getDate()).padStart(2, '0');
-
     const newKey = `${y}-${m}-${d}`;
 
-    if (fpInstance) {
-        fpInstance.setDate(newKey, true); // true = dispara onChange (chama updateSidebarDate)
-    }
+    if (fpInstance) fpInstance.setDate(newKey, true);
 }
 
-// --- UI LISTA DE VAGAS ---
-
+// UI Vagas
 function handleSlotClick(slot, key) {
     currentSlotId = slot.id;
     currentDateKey = key;
     renderSlotsList();
 
     if (currentView === 'booking') {
-        // Se estiver em modo Move, verifica compatibilidade básica
         if (slot.status === 'LIVRE') {
             handleVerifyAndOpen(slot);
         } else {
-            // Se ocupado, abre modal de edição
             openBookingModal(slot, key);
         }
     }
 }
 
 async function handleVerifyAndOpen(slot) {
-    // 1. OTIMISTA: Abre o modal IMEDIATAMENTE
     openBookingModal(slot, selectedDateKey);
 
-    // 2. VERIFICAÇÃO EM BACKGROUND
     const modalTitle = document.getElementById('msg-title');
     const originalTitle = modalTitle ? modalTitle.innerText : 'Agendar';
     if (modalTitle) modalTitle.innerText = 'Agendar (Verificando...)';
 
-    const FRESH_SLOT = await verifySlotAvailability(slot.id, true); // Background = true
+    const FRESH_SLOT = await verifySlotAvailability(slot.id, true);
 
     if (modalTitle) modalTitle.innerText = originalTitle;
 
-    // 3. SE CONFIRMAR CONFLITO, APENAS AVISE E ATUALIZE
     if (!FRESH_SLOT) {
         closeModal();
         showToast("Vaga não encontrada ou excluída.", "error");
@@ -884,13 +810,10 @@ async function handleVerifyAndOpen(slot) {
 
     if (FRESH_SLOT.status !== 'LIVRE') {
         closeModal();
-        // SIMPLIFICADO: "Vaga ocupada" e update na tela. Sem botões extras.
         showToast("Conflito: Vaga acabou de ser ocupada.", "error");
         renderSlotsList();
         return;
     }
-
-    // Se ainda está aberto, atualiza dados (caso algo sutil tenha mudado) e segue a vida
 }
 
 function updateFilterOptions() {
@@ -904,7 +827,6 @@ function updateFilterOptions() {
     const locSelect = document.getElementById('location-filter');
     const specSelect = document.getElementById('specialty-filter');
 
-    // Save current values to restore if possible
     const currentRoom = roomSelect.value;
     const currentLoc = locSelect.value;
     const currentSpec = specSelect ? specSelect.value : 'ALL';
@@ -916,12 +838,8 @@ function updateFilterOptions() {
         opt.textContent = r;
         roomSelect.appendChild(opt);
     });
-    // Restore selection or default to ALL
-    if (rooms.includes(currentRoom)) {
-        roomSelect.value = currentRoom;
-    } else {
-        roomSelect.value = 'ALL';
-    }
+    if (rooms.includes(currentRoom)) roomSelect.value = currentRoom;
+    else roomSelect.value = 'ALL';
 
     locSelect.innerHTML = '<option value="ALL">Todas Unidades</option>';
     locations.forEach(l => {
@@ -930,12 +848,8 @@ function updateFilterOptions() {
         opt.textContent = l;
         locSelect.appendChild(opt);
     });
-    // Restore selection or default to ALL
-    if (locations.includes(currentLoc)) {
-        locSelect.value = currentLoc;
-    } else {
-        locSelect.value = 'ALL';
-    }
+    if (locations.includes(currentLoc)) locSelect.value = currentLoc;
+    else locSelect.value = 'ALL';
 
     if (specSelect) {
         specSelect.innerHTML = '<option value="ALL">Todas Especialidades</option>';
@@ -945,36 +859,29 @@ function updateFilterOptions() {
             opt.textContent = s;
             specSelect.appendChild(opt);
         });
-        if (specialties.includes(currentSpec)) {
-            specSelect.value = currentSpec;
-        } else {
-            specSelect.value = 'ALL';
-        }
+        if (specialties.includes(currentSpec)) specSelect.value = currentSpec;
+        else specSelect.value = 'ALL';
     }
 }
 
 function applyFilters() { renderSlotsList(); }
 
 function renderSlotsList() {
-    // updateFilterOptions(); // REMOVIDO: Filtros devem ser atualizados apenas ao trocar dia/dados
     const container = document.getElementById('slots-list-container');
     container.innerHTML = '';
 
     const currentDateSlots = appointments[selectedDateKey] || [];
 
-    // FILTRAGEM SEGURA (Estado Mantido)
     const locFilter = document.getElementById('location-filter').value;
     const roomFilter = document.getElementById('room-filter').value;
     const shiftFilter = document.getElementById('shift-filter').value;
     const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
 
     let slots = currentDateSlots.filter(s => {
-        // Excluir tecnicamente os 'EXCLUIDO' se vierem do backend
         if (String(s.status).toUpperCase() === 'EXCLUIDO') return false;
 
         let pass = true;
         if (locFilter !== 'ALL' && s.location !== locFilter) pass = false;
-        // CORREÇÃO: Comparar String com String para evitar erro de tipo
         if (roomFilter !== 'ALL' && String(s.room) !== String(roomFilter)) pass = false;
 
         if (shiftFilter !== 'ALL') {
@@ -1007,9 +914,6 @@ function renderSlotsList() {
         const item = document.createElement('div');
         item.className = 'slot-item';
         if (currentSlotId === slot.id) item.classList.add('active');
-
-        // REMOVIDO: animationDelay para evitar pisca-pisca
-        // item.style.animationDelay = `${index * 0.05}s`;
 
         let statusClass = slot.status === 'LIVRE' ? 'free' : 'booked';
         let statusText = slot.status === 'LIVRE' ? 'Disponível' : 'Ocupado';
@@ -1054,10 +958,6 @@ function renderSlotsList() {
                  ${slot.updatedBy ? 'Agendado por: ' + slot.updatedBy : ''} 
             </div>
             `;
-        } else {
-            // Em estado LIVRE, já mostramos a especialidade acima, então remove a redundância se quiser,
-            // mas o layout padrão pede algo ali ou deixa vazio.
-            // mainInfo += `<div style="font-size:0.75rem; color:var(--text-light); margin-top:2px;">${slot.specialty || '-'}</div>`;
         }
 
         mainInfo += `</div>`;
@@ -1074,9 +974,7 @@ function renderSlotsList() {
     });
 }
 
-// --- GERAÇÃO EM LOTE ---
-
-// --- GERAÇÃO EM LOTE ---
+// Geração em lote
 function bulkCreateSlots() {
     const dateVal = document.getElementById('bulk-date').value;
     const location = document.getElementById('bulk-location').value;
@@ -1087,7 +985,6 @@ function bulkCreateSlots() {
     const endTime = document.getElementById('bulk-end-time').value;
     const qty = parseInt(document.getElementById('bulk-qty').value);
 
-    // CORREÇÃO: Exigindo a Sala e o Médico corretamente
     if (!dateVal || !startTime || !endTime || !doctor || !room || isNaN(qty) || qty < 1) {
         return showToast('Preencha todos os campos, incluindo a Sala.', 'error');
     }
@@ -1119,11 +1016,9 @@ function bulkCreateSlots() {
             doctor: doctor,
             specialty: group,
             procedure: group
-            // createdBy removido: o backend infere do token
         });
     }
 
-    // --- UX: SPINNER NO BOTÃO ---
     const btn = document.querySelector('button[onclick="bulkCreateSlots()"]');
     const originalHtml = btn.innerHTML;
     btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Criando...`;
@@ -1136,7 +1031,6 @@ function bulkCreateSlots() {
     };
 
     sendUpdateToSheet(payload).then(resp => {
-        // Restaura o botão
         btn.innerHTML = originalHtml;
         btn.disabled = false;
         btn.style.opacity = '1';
@@ -1144,7 +1038,6 @@ function bulkCreateSlots() {
         if (resp && resp.status === 'success') {
             showToast(`${qty} vagas criadas!`, 'success');
 
-            // --- UX: LIMPANDO TODOS OS CAMPOS ---
             document.getElementById('bulk-room').value = '';
             document.getElementById('bulk-doctor').value = '';
             document.getElementById('bulk-date').value = '';
@@ -1170,8 +1063,7 @@ function bulkCreateSlots() {
     });
 }
 
-// --- ADMIN TABLE ---
-
+// Admin Table
 function renderAdminTable() {
     const tbody = document.getElementById('admin-table-body');
     if (!tbody) return;
@@ -1180,7 +1072,6 @@ function renderAdminTable() {
         .map(cb => String(cb.value));
 
     tbody.innerHTML = '';
-
     const targetMonth = selectedDateKey.substring(0, 7);
     const slots = [];
 
@@ -1195,7 +1086,6 @@ function renderAdminTable() {
 
     slots.forEach(slot => {
         const tr = document.createElement('tr');
-
         let statusHtml = slot.status === 'OCUPADO'
             ? `<span style="background:#fee2e2; color:#dc2626; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">OCUPADO</span>`
             : `<span style="background:#dcfce7; color:#16a34a; padding:2px 8px; border-radius:12px; font-weight:600; font-size:0.75rem">LIVRE</span>`;
@@ -1228,7 +1118,6 @@ function renderAdminTable() {
     });
 
     updateDeleteButton();
-
     const masterCheck = document.getElementById('check-all-slots');
     if (masterCheck) {
         const total = document.querySelectorAll('.slot-checkbox').length;
@@ -1275,89 +1164,62 @@ async function deleteSelectedSlots() {
 
 async function processBatchDelete(ids) {
     showMessageModal('Processando', `Excluindo ${ids.length} vagas...`, 'loading');
-
-    // STRICT TOKEN: Se não tiver token, tenta login ou usa "Anonymous" (mas o backend precisa saber)
-    // Assumindo que já está logado pois é Admin Area
-
     try {
-        const payload = {
-            action: "delete_bulk",
-            ids: ids
-        };
-
-        // Usa sendUpdateToSheet para garantir mesmo formato (URLSearchParams)
+        const payload = { action: "delete_bulk", ids: ids };
         const resp = await sendUpdateToSheet(payload);
-
         if (resp && resp.status === 'success') {
-            // Atualiza estado local em massa
             Object.keys(appointments).forEach(key => {
                 appointments[key] = appointments[key].filter(s => !ids.includes(String(s.id)));
             });
-
             recalculateMonthCache(selectedDateKey.substring(0, 7));
             closeMessageModal();
             renderSlotsList();
             renderAdminTable();
             updateKPIs();
-
-            showToast(`${resp.count || ids.length} vagas excluídas com sucesso.`, 'success');
+            showToast(`${resp.count || ids.length} vagas excluídas.`, 'success');
         } else {
             closeMessageModal();
-            showToast(`Erro ao excluir: ${resp ? resp.message : 'Resposta inválida'}`, 'error');
+            showToast(`Erro ao excluir: ${resp ? resp.message : 'Erro'}`, 'error');
         }
-
     } catch (e) {
         closeMessageModal();
-        console.error("Erro delete bulk:", e);
-        showToast("Erro de conexão ao excluir.", "error");
+        showToast("Erro de conexão.", "error");
     }
 }
 
 function deleteSlot(id) {
     const monthKey = selectedDateKey.substring(0, 7);
     let slot = null;
-
     Object.keys(appointments).forEach(k => {
         if (!slot && k.startsWith(monthKey)) slot = appointments[k].find(s => String(s.id) === String(id));
     });
-
     let msg = 'Excluir vaga permanentemente?';
     if (slot && slot.status === 'OCUPADO') {
         msg = `<b>ATENÇÃO:</b> Vaga com paciente <b>${slot.patient}</b>. Excluir removerá ambos.`;
     }
-
     showMessageModal('Excluir', msg, 'confirm', async () => {
         closeMessageModal();
-        setLoading(true, true); // Bloqueante pois é uma ação destrutiva
-
-        const resp = await sendUpdateToSheet({
-            action: "delete",
-            id: id
-        });
+        setLoading(true, true);
+        const resp = await sendUpdateToSheet({ action: "delete", id: id });
         if (resp && resp.status === 'success') {
             Object.keys(appointments).forEach(key => {
                 appointments[key] = appointments[key].filter(s => String(s.id) !== String(id));
             });
-
             recalculateMonthCache(selectedDateKey.substring(0, 7));
             renderSlotsList();
             renderAdminTable();
             updateKPIs();
-
             showToast('Vaga excluída.', 'success');
         }
-
         setLoading(false);
     });
 }
 
-// --- MODAL DE AGENDAMENTO E EDIÇÃO ---
+// Modal Agendamento
 function openBookingModal(slot, dateKey) {
     document.getElementById('booking-modal').classList.add('open');
     document.getElementById('msg-title').innerText = 'Agendar';
 
-    // Preenche info do cabeçalho
-    // Preenche info do cabeçalho
     document.getElementById('modal-slot-info').innerHTML = `
         <div style="display:flex; gap:12px; font-size: 0.9rem; align-items:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
             <span>DATA: <b>${formatDateBR(dateKey)}</b></span>
@@ -1370,12 +1232,9 @@ function openBookingModal(slot, dateKey) {
 
     document.getElementById('selected-slot-id').value = slot.id;
     document.getElementById('bk-specialty').value = slot.specialty || '';
-
-
     const btnArea = document.getElementById('action-buttons-area');
-    btnArea.innerHTML = ''; // Limpa botões
+    btnArea.innerHTML = '';
 
-    // --- MODO: VAGA OCUPADA (EDIÇÃO/REALOCAÇÃO) ---
     if (slot.status === 'OCUPADO') {
         document.getElementById('bk-patient').value = slot.patient || '';
         document.getElementById('bk-record').value = slot.record || '';
@@ -1386,8 +1245,6 @@ function openBookingModal(slot, dateKey) {
                 if (Array.isArray(plist) && plist.length > 0) {
                     updateProcedureSelectOptions(slot.specialty, plist[0].name || '');
                     document.getElementById('bk-proc-regulated').checked = plist[0].regulated;
-
-                    // NOVA CARGA
                     if (!plist[0].regulated && plist[0].type) {
                         document.querySelectorAll('input[name="bk-internal-type"]').forEach(r => {
                             if (r.value === plist[0].type) r.checked = true;
@@ -1399,29 +1256,23 @@ function openBookingModal(slot, dateKey) {
             updateProcedureSelectOptions(slot.specialty, slot.procedure || '');
             document.getElementById('bk-proc-regulated').checked = slot.regulated || false;
         }
-        toggleRegulated(); // Força a tela a se arrumar
+        toggleRegulated();
 
-        // Botão de Cancelar/Liberar (REMOVIDO BOTÃO DE REALOCAR)
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'btn btn-danger';
         cancelBtn.innerText = 'Liberar Vaga';
         cancelBtn.onclick = cancelSlotBooking;
         btnArea.appendChild(cancelBtn);
 
-        // Botão Salvar Edição
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn btn-primary';
         saveBtn.innerText = 'Salvar Alterações';
         saveBtn.onclick = confirmBookingFromModal;
         btnArea.appendChild(saveBtn);
-
-        // --- MODO: VAGA LIVRE (DESTINO DE REALOCAÇÃO OU NOVO) ---
     } else {
-        // Limpa campos para novo agendamento
         document.getElementById('bk-patient').value = '';
         document.getElementById('bk-record').value = '';
         document.getElementById('bk-contract').value = '';
-
         updateProcedureSelectOptions(slot.specialty, '');
         document.getElementById('bk-proc-regulated').checked = true;
 
@@ -1430,8 +1281,6 @@ function openBookingModal(slot, dateKey) {
         confirmBtn.innerText = 'Confirmar';
         confirmBtn.onclick = confirmBookingFromModal;
         btnArea.appendChild(confirmBtn);
-
-        // ADICIONE ESTA LINHA AQUI:
         toggleRegulated();
     }
 }
@@ -1440,23 +1289,16 @@ function updateProcedureSelectOptions(specialtyGroup, currentProcName = '') {
     const select = document.getElementById('bk-procedure');
     select.innerHTML = '<option value="">Selecione o procedimento...</option>';
 
-    // Normaliza a especialidade 
     const rawSpecialty = (specialtyGroup || "").trim();
     const mapAccents = { 'Ç': 'C', 'Ã': 'A', 'Õ': 'O', 'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U', 'Â': 'A', 'Ê': 'E', 'À': 'A' };
     let normalizedSpec = rawSpecialty.toUpperCase().replace(/[ÇÃÕÁÉÍÓÚÂÊ]/g, c => mapAccents[c] || c);
 
     if (normalizedSpec === 'LASERS') normalizedSpec = 'LASER';
+    if (normalizedSpec !== 'LASER') normalizedSpec = 'CIRURGIA';
 
-    // Fallback: Se não for LASER, usamos CIRURGIA por padrão para as demais
-    if (normalizedSpec !== 'LASER') {
-        normalizedSpec = 'CIRURGIA';
-    }
-
-    // Pega a lista original e CRIA UMA CÓPIA ORDENADA ALFABETICAMENTE
     let procs = SPECIALTY_PROCEDURES[normalizedSpec] || [];
     procs = [...procs].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-    // Adiciona ao <select>
     procs.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p;
@@ -1477,7 +1319,6 @@ function updateProcedureSelectOptions(specialtyGroup, currentProcName = '') {
 function closeModal() { document.getElementById('booking-modal').classList.remove('open'); }
 
 function checkWarning() {
-    // Função esvaziada. O aviso de limite de governança foi desativado.
     const warningBox = document.getElementById('warning-box');
     if (warningBox) warningBox.style.display = 'none';
 }
@@ -1491,16 +1332,13 @@ function confirmBookingFromModal() {
     const isReg = document.getElementById('bk-proc-regulated').checked;
 
     if (!patient || !contract || !record || !name) {
-        return showToast('Preencha os campos obrigatórios e o procedimento.', 'error');
+        return showToast('Preencha os campos obrigatórios.', 'error');
     }
 
     let internalType = null;
-
     if (!isReg && !CONTRACTS.MUNICIPAL.includes(contract)) {
         const selectedRadio = document.querySelector('input[name="bk-internal-type"]:checked');
-        if (!selectedRadio) {
-            return showToast('Obrigatório selecionar Emergência ou Projetos.', 'error');
-        }
+        if (!selectedRadio) return showToast('Selecione Emergência ou Projetos.', 'error');
         internalType = selectedRadio.value;
     }
 
@@ -1534,7 +1372,7 @@ function confirmBookingFromModal() {
                         procedure: procedureJSON,
                         detail: "",
                         eye: "",
-                        updatedBy: currentUserName // <--- ADICIONE ESTA LINHA AQUI!
+                        updatedBy: currentUserName
                     };
                 }
             });
@@ -1560,44 +1398,29 @@ function confirmBookingFromModal() {
             };
 
             sendUpdateToSheet(payload).then(async (resp) => {
-                const success = resp && resp.status === 'success';
-                if (!success) {
-                    showToast("CONFLITO: Vaga já ocupada ou erro de servidor.", "error");
-                    await refreshData(); // Auto refresh em conflito
-                } else {
-                    // SE SUCESSO E ESTAMOS EM MODO MOVE, LIBERA A ORIGEM
-                    if (isMoveMode && clipboardPatient && clipboardPatient.originId) {
-                        const originId = clipboardPatient.originId;
-                        // Envia liberação da antiga
-                        await sendUpdateToSheet({
-                            action: "update",
-                            id: originId,
-                            status: 'LIVRE',
-                            patient: '', record: '', contract: '', regulated: null,
-                            procedure: '', detail: '', eye: ''
-                        });
+                if (!(resp && resp.status === 'success')) {
+                    showToast("CONFLITO ou erro de servidor.", "error");
+                    await refreshData();
+                } else if (isMoveMode && clipboardPatient && clipboardPatient.originId) {
+                    const originId = clipboardPatient.originId;
+                    await sendUpdateToSheet({
+                        action: "update",
+                        id: originId,
+                        status: 'LIVRE',
+                        patient: '', record: '', contract: '', regulated: null,
+                        procedure: '', detail: '', eye: ''
+                    });
 
-                        // Limpa estado local da origem
-                        Object.keys(appointments).forEach(k => {
-                            const idx = appointments[k].findIndex(s => String(s.id) === String(originId));
-                            if (idx !== -1) {
-                                appointments[k][idx].status = 'LIVRE';
-                                appointments[k][idx].patient = '';
-                                // ... limpar resto se quiser visualmente perfeito,
-                                // mas o refresh ou render ja resolve
-                            }
-                        });
+                    Object.keys(appointments).forEach(k => {
+                        const idx = appointments[k].findIndex(s => String(s.id) === String(originId));
+                        if (idx !== -1) appointments[k][idx].status = 'LIVRE';
+                    });
 
-                        showToast("Realocação concluída com sucesso!", "success");
-
-                        // Reset flags
-                        isMoveMode = false;
-                        clipboardPatient = null;
-                        document.querySelector('.listing-column').style.borderLeft = "none";
-
-                        // Refresh final para garantir consistencia visual
-                        renderSlotsList();
-                    }
+                    showToast("Realocação concluída!", "success");
+                    isMoveMode = false;
+                    clipboardPatient = null;
+                    document.querySelector('.listing-column').style.borderLeft = "none";
+                    renderSlotsList();
                 }
             });
         });
@@ -1605,7 +1428,7 @@ function confirmBookingFromModal() {
 }
 
 function cancelSlotBooking() {
-    showMessageModal('Liberar Vaga', 'Remover paciente e procedimentos?', 'confirm', () => {
+    showMessageModal('Liberar Vaga', 'Remover paciente?', 'confirm', () => {
         requestToken(async () => {
             const id = document.getElementById('selected-slot-id').value;
 
@@ -1617,7 +1440,7 @@ function cancelSlotBooking() {
                         status: 'LIVRE',
                         patient: '', record: '', contract: '', regulated: null,
                         procedure: '', detail: '', eye: '',
-                        updatedBy: currentUserName // <--- ADICIONE ESTA LINHA AQUI TAMBÉM!
+                        updatedBy: currentUserName
                     };
                 }
             });
@@ -1629,35 +1452,25 @@ function cancelSlotBooking() {
             updateKPIs();
             showToast("Vaga liberada.", "success");
 
-            const payload = {
+            sendUpdateToSheet({
                 action: "update",
                 id: id,
                 status: 'LIVRE',
                 patient: '', record: '', contract: '', regulated: null,
                 procedure: '', detail: '', eye: ''
-            };
-
-            sendUpdateToSheet(payload);
+            });
         }, "Autorizar Cancelamento");
     });
 }
 
-// --- KPI: AJUSTADA PARA CONTAR PROCEDIMENTOS ---
 function calculateFilteredStats() {
     const startInput = document.getElementById('dash-date-start');
     const endInput = document.getElementById('dash-date-end');
-
     let startDate = startInput && startInput.value ? startInput.value : selectedDateKey;
     let endDate = endInput && endInput.value ? endInput.value : startDate;
-
     if (startDate > endDate && endDate) endDate = startDate;
 
-    let totalSlots = 0;
-    let occupiedSlots = 0;
-    let totalMarcacoes = 0;
-    let totalCirurgia = 0;
-    let totalLaser = 0;
-
+    let totalSlots = 0, occupiedSlots = 0, totalMarcacoes = 0, totalCirurgia = 0, totalLaser = 0;
     let counts = {
         Regulado: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
         Interno: { Total: 0, ESTADO: 0, SERRA: 0, SALGUEIRO: 0 },
@@ -1668,7 +1481,6 @@ function calculateFilteredStats() {
         },
         Municipal: { Total: 0, RECIFE: 0, JABOATÃO: 0 }
     };
-
     let locationCounts = {};
 
     Object.keys(appointments).forEach(dateKey => {
@@ -1679,37 +1491,18 @@ function calculateFilteredStats() {
                 if (s.status === 'OCUPADO') {
                     occupiedSlots++;
                     totalMarcacoes++;
-
-                    let isLaser = false;
-                    let isCirurgia = false;
-
-                    if (s.specialty && s.specialty.toUpperCase() === 'LASER') {
-                        isLaser = true;
-                    } else if (s.specialty && s.specialty.toUpperCase().includes('LASER')) {
-                        isLaser = true; // Fallback para legados
-                    } else {
-                        isCirurgia = true;
-                    }
-
-                    if (isLaser) totalLaser++;
-                    if (isCirurgia) totalCirurgia++;
-
+                    let isLaser = s.specialty && s.specialty.toUpperCase().includes('LASER');
+                    if (isLaser) totalLaser++; else totalCirurgia++;
                     const procs = getProceduresFromSlot(s);
                     const procsLen = procs.length > 0 ? procs.length : 1;
-
-                    // Conta por local físico
                     const loc = s.location ? s.location.trim() : "Outros";
                     if (!locationCounts[loc]) locationCounts[loc] = 0;
                     locationCounts[loc] += procsLen;
-
                     const c = s.contract ? s.contract.toUpperCase() : null;
                     if (!c) return;
-
                     if (CONTRACTS.MUNICIPAL.includes(c)) {
-                        const countToAdd = procs.length > 0 ? procs.length : 1;
-                        counts.Municipal.Total += countToAdd;
-                        if (counts.Municipal[c] !== undefined) counts.Municipal[c] += countToAdd;
-
+                        counts.Municipal.Total += procsLen;
+                        if (counts.Municipal[c] !== undefined) counts.Municipal[c] += procsLen;
                     } else if (CONTRACTS.LOCALS.includes(c)) {
                         if (procs.length > 0) {
                             procs.forEach(p => {
@@ -1719,54 +1512,38 @@ function calculateFilteredStats() {
                                 } else {
                                     counts.Interno.Total++;
                                     if (counts.Interno[c] !== undefined) counts.Interno[c]++;
-
-                                    // NOVA CONTAGEM DE TIPO
-                                    if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
-                                    else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
-                                    else counts.InternoTypes[c].Emergencia++; // Fallback pra antigos
+                                    if (p.type === 'Emergência' || !p.type) counts.InternoTypes[c].Emergencia++;
+                                    else counts.InternoTypes[c].Projetos++;
                                 }
                             });
                         } else {
                             counts.Interno.Total++;
                             if (counts.Interno[c] !== undefined) counts.Interno[c]++;
-
-                            // NOVA CONTAGEM DE TIPO
-                            const p = (procs.length > 0) ? procs[0] : {};
-                            if (p.type === 'Emergência') counts.InternoTypes[c].Emergencia++;
-                            else if (p.type === 'Projetos') counts.InternoTypes[c].Projetos++;
-                            else counts.InternoTypes[c].Emergencia++;
+                            counts.InternoTypes[c].Emergencia++;
                         }
                     }
                 }
             });
         }
     });
-
     return { total: totalSlots, occupied: occupiedSlots, counts, totalMarcacoes, totalCirurgia, totalLaser, startDate, endDate, locationCounts };
 }
 
 function updateCharts(stats) {
     const ctxLoc = document.getElementById('chart-location');
     const ctxContract = document.getElementById('chart-specialty');
-
     if (!ctxLoc || !ctxContract) return;
 
-    // --- GRÁFICO 1: DISTRIBUIÇÃO POR UNIDADE FÍSICA (DOUGHNUT) ---
     const locLabels = Object.keys(stats.locationCounts || {});
     const locValues = Object.values(stats.locationCounts || {});
     const locColors = ['#0284c7', '#059669', '#d97706', '#7c3aed', '#db2777', '#475569'];
 
     if (chartLocInstance) {
-        // ATUALIZAÇÃO SUAVE (Evita o gráfico piscar)
         chartLocInstance.data.labels = locLabels;
         chartLocInstance.data.datasets[0].data = locValues;
-
-        // CORRIGE O BUG DAS CORES REPETIDAS:
         chartLocInstance.data.datasets[0].backgroundColor = locColors.slice(0, locLabels.length);
-
         chartLocInstance.update();
     } else {
-        // CRIAÇÃO COM DESIGN PREMIUM
         chartLocInstance = new Chart(ctxLoc, {
             type: 'doughnut',
             data: {
@@ -1774,7 +1551,7 @@ function updateCharts(stats) {
                 datasets: [{
                     data: locValues,
                     backgroundColor: locColors.slice(0, locLabels.length),
-                    borderWidth: 0, // Tira a borda branca padrão agressiva
+                    borderWidth: 0,
                     hoverOffset: 6
                 }]
             },
@@ -1786,88 +1563,40 @@ function updateCharts(stats) {
                     legend: {
                         position: 'right',
                         labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", size: 12, weight: '500' } }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        titleFont: { family: "'Inter', sans-serif" },
-                        bodyFont: { family: "'Inter', sans-serif" },
-                        padding: 12,
-                        cornerRadius: 8
                     }
                 },
-                cutout: '72%' // Deixa o anel mais fino e elegante
+                cutout: '72%'
             }
         });
     }
 
-    // --- GRÁFICO 2: DESEMPENHO POR CONTRATO (STACKED BAR) ---
     const barDataReg = [stats.counts.Regulado.ESTADO, stats.counts.Regulado.SERRA, stats.counts.Regulado.SALGUEIRO];
     const barDataInt = [stats.counts.Interno.ESTADO, stats.counts.Interno.SERRA, stats.counts.Interno.SALGUEIRO];
 
     if (chartSpecInstance) {
-        // ATUALIZAÇÃO SUAVE
         chartSpecInstance.data.datasets[0].data = barDataReg;
         chartSpecInstance.data.datasets[1].data = barDataInt;
         chartSpecInstance.update();
     } else {
-        // CRIAÇÃO COM DESIGN PREMIUM
         chartSpecInstance = new Chart(ctxContract, {
             type: 'bar',
             data: {
                 labels: ['Estado', 'Serra Talhada', 'Salgueiro'],
                 datasets: [
-                    {
-                        label: 'Regulados',
-                        data: barDataReg,
-                        backgroundColor: '#7c3aed',
-                        borderRadius: 6, // Arredonda o topo das barras
-                        maxBarThickness: 35, // Limite máximo de largura em pixels
-                        barPercentage: 0.6,  // Ocupa 60% da categoria (torna a barra mais fina)
-                        categoryPercentage: 0.5 // Aumenta o espaçamento entre os grupos de barras
-                    },
-                    {
-                        label: 'Internos',
-                        data: barDataInt,
-                        backgroundColor: '#059669',
-                        borderRadius: 6,
-                        maxBarThickness: 35,
-                        barPercentage: 0.6,
-                        categoryPercentage: 0.5
-                    }
+                    { label: 'Regulados', data: barDataReg, backgroundColor: '#7c3aed', borderRadius: 6, maxBarThickness: 35, barPercentage: 0.6, categoryPercentage: 0.5 },
+                    { label: 'Internos', data: barDataInt, backgroundColor: '#059669', borderRadius: 6, maxBarThickness: 35, barPercentage: 0.6, categoryPercentage: 0.5 }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", weight: '500' } }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                        padding: 12,
-                        cornerRadius: 8,
-                        mode: 'index',
-                        intersect: false,
-                        titleFont: { family: "'Inter', sans-serif" },
-                        bodyFont: { family: "'Inter', sans-serif" }
-                    }
+                    legend: { position: 'top', labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", weight: '500' } } }
                 },
                 scales: {
-                    x: {
-                        stacked: true,
-                        grid: { display: false }, // Limpa as linhas verticais
-                        ticks: { font: { family: "'Inter', sans-serif", weight: '600' } }
-                    },
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        grid: { color: '#f1f5f9', drawBorder: false }, // Linhas horizontais sutis
-                        ticks: { stepSize: 1, font: { family: "'Inter', sans-serif" } }
-                    }
-                },
-                interaction: { mode: 'nearest', axis: 'x', intersect: false }
+                    x: { stacked: true, grid: { display: false }, ticks: { font: { family: "'Inter', sans-serif", weight: '600' } } },
+                    y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { stepSize: 1, font: { family: "'Inter', sans-serif" } } }
+                }
             }
         });
     }
@@ -1879,11 +1608,7 @@ function updateKPIs() {
 
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
-
-    const universeGov = totalReg + totalInt;
-    const validBaseGov = universeGov > 0 ? universeGov : 1;
-
-    const realIdleCount = total - occupied;
+    const validBaseGov = (totalReg + totalInt) || 1;
 
     animateMetric('glb-marcacoes', totalMarcacoes);
     animateMetric('glb-cirurgia', totalCirurgia);
@@ -1909,15 +1634,11 @@ function updateKPIs() {
     animateMetric('stat-jaboatao', counts.Municipal.JABOATÃO);
     animateMetric('kpi-mun-val', counts.Municipal.Total);
 
-    // --- GERAÇÃO DOS BALÕES DE TOOLTIP (HOVER) NOS INTERNOS ---
     const setTooltip = (id, c) => {
         const el = document.getElementById(id).parentElement;
-
-        // Remove o balão nativo feio e prepara a div para receber o novo
         el.removeAttribute('title');
         el.classList.add('tooltip-container');
 
-        // Cria a caixinha customizada se ela ainda não existir no card
         let tooltip = el.querySelector('.custom-tooltip');
         if (!tooltip) {
             tooltip = document.createElement('div');
@@ -1926,31 +1647,17 @@ function updateKPIs() {
         }
 
         const totalIntContrato = counts.Interno[c];
-
         if (totalIntContrato > 0) {
             const em = counts.InternoTypes[c].Emergencia;
             const pr = counts.InternoTypes[c].Projetos;
-            const emPct = ((em / totalIntContrato) * 100).toFixed(1);
-            const prPct = ((pr / totalIntContrato) * 100).toFixed(1);
-
-            // Injeta o HTML bem formatado dentro da caixinha flutuante
             tooltip.innerHTML = `
-                <div style="font-weight:800; color:#e0f2fe; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:6px; margin-bottom:8px; text-transform:uppercase; font-size:0.7rem; letter-spacing: 0.5px;">
-                    Detalhamento
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:6px; align-items:center;">
-                    <span style="color:#f0f9ff; opacity:0.9">Emergência:</span> 
-                    <span style="font-weight:700; color:#fff; font-size:0.85rem">${em} <span style="font-size:0.65rem; color:#e0f2fe; font-weight:500">(${emPct}%)</span></span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#f0f9ff; opacity:0.9">Projetos:</span> 
-                    <span style="font-weight:700; color:#fff; font-size:0.85rem">${pr} <span style="font-size:0.65rem; color:#e0f2fe; font-weight:500">(${prPct}%)</span></span>
-                </div>
+                <div style="font-weight:800; color:#e0f2fe; border-bottom:1px solid rgba(255,255,255,0.2); padding-bottom:6px; margin-bottom:8px; text-transform:uppercase; font-size:0.7rem;">Detalhamento</div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span>Emergência:</span> <b>${em}</b></div>
+                <div style="display:flex; justify-content:space-between;"><span>Projetos:</span> <b>${pr}</b></div>
             `;
             el.style.cursor = 'help';
             tooltip.style.display = 'block';
         } else {
-            // Se não tiver procedimentos internos, não mostra a caixinha
             el.style.cursor = 'default';
             tooltip.style.display = 'none';
         }
@@ -1959,160 +1666,73 @@ function updateKPIs() {
     setTooltip('stat-int-estado', 'ESTADO');
     setTooltip('stat-int-serra', 'SERRA');
     setTooltip('stat-int-salgueiro', 'SALGUEIRO');
-
-    // Atualiza Gráficos
     updateCharts(stats);
 }
 
-// --- PDF: TAMBÉM AJUSTADO ---
 function generateDashboardPDF() {
     const stats = calculateFilteredStats();
     let monthVal = `${stats.startDate} a ${stats.endDate}`;
-    const { total, occupied, counts, totalMarcacoes, totalCirurgia, totalLaser } = stats;
+    const { total, occupied, counts } = stats;
 
-    // Cálculos
-    const totalMunicipal = counts.Municipal.Total;
     const totalReg = counts.Regulado.Total;
     const totalInt = counts.Interno.Total;
     const universeGov = totalReg + totalInt;
-    const validBase = universeGov > 0 ? universeGov : 1;
-
-    const realIdleCount = total - occupied;
+    const validBase = universeGov || 1;
     const pctOccupied = total > 0 ? (occupied / total * 100).toFixed(1) : "0.0";
-
-    const pctRegGlobal = (totalReg / validBase * 100).toFixed(1);
-    const pctIntGlobal = (totalInt / validBase * 100).toFixed(1);
-
-    const calcSubPct = (val, groupTot) => groupTot > 0 ? (val / groupTot * 100).toFixed(1) : "0.0";
-
-    const regEstadoPct = calcSubPct(counts.Regulado.ESTADO, totalReg);
-    const regSerraPct = calcSubPct(counts.Regulado.SERRA, totalReg);
-    const regSalgPct = calcSubPct(counts.Regulado.SALGUEIRO, totalReg);
-
-    const intEstadoPct = calcSubPct(counts.Interno.ESTADO, totalInt);
-    const intSerraPct = calcSubPct(counts.Interno.SERRA, totalInt);
-    const intSalgPct = calcSubPct(counts.Interno.SALGUEIRO, totalInt);
 
     const content = document.createElement('div');
     content.innerHTML = `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
             <div style="border-bottom: 2px solid #0284c7; padding-bottom: 10px; margin-bottom: 20px;">
                 <h1 style="color: #1e293b; font-size: 24px; margin: 0;">Relatório de Governança Cirúrgica</h1>
-                <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período de Referência: ${monthVal}</div>
+                <div style="color: #64748b; font-size: 14px; margin-top: 5px;">Período: ${monthVal}</div>
             </div>
-
             <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="margin-top:0; color:#475569; font-size:16px; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">Visão Geral</h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Capacidade Física (Vagas):</strong> ${total}</td>
-                         <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Vagas Livres:</strong> ${realIdleCount}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Taxa Ocupação Física:</strong> ${pctOccupied}%</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0;"><strong>Total Procedimentos Gov:</strong> ${universeGov}</td>
-                    </tr>
-                </table>
+                <h3 style="margin-top:0; color:#475569; font-size:16px;">Visão Geral</h3>
+                <p>Capacidade: ${total} | Ocupação: ${pctOccupied}% | Total Gov: ${universeGov}</p>
             </div>
-
             <div style="display:flex; gap:20px;">
                 <div style="flex:1;">
-                    <h3 style="color:#7c3aed; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Procedimentos Regulados (Meta 60%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#7c3aed; margin-bottom:10px;">${pctRegGlobal}% <span style="font-size:12px; color:#666">dos procs</span></div>
-                    <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
-                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${regEstadoPct}% (${counts.Regulado.ESTADO})</td></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${regSerraPct}% (${counts.Regulado.SERRA})</td></tr>
-                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${regSalgPct}% (${counts.Regulado.SALGUEIRO})</td></tr>
-                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalReg})</td></tr>
-                    </table>
+                    <h3 style="color:#7c3aed;">Regulados (${((totalReg / validBase) * 100).toFixed(1)}%)</h3>
+                    <p>Total: ${totalReg}</p>
                 </div>
-
                 <div style="flex:1;">
-                    <h3 style="color:#059669; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Procedimentos Internos (Meta 40%)</h3>
-                    <div style="font-size:24px; font-weight:bold; color:#059669; margin-bottom:10px;">${pctIntGlobal}% <span style="font-size:12px; color:#666">dos procs</span></div>
-                    <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
-                        <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Unidade</th><th style="padding:8px; text-align:right;">% Grupo (Qtd)</th></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Estado</td><td style="padding:8px; text-align:right;">${intEstadoPct}% (${counts.Interno.ESTADO})</td></tr>
-                        <tr><td style="padding:8px; border-bottom:1px solid #eee;">Serra Talhada</td><td style="padding:8px; text-align:right;">${intSerraPct}% (${counts.Interno.SERRA})</td></tr>
-                        <tr><td style="padding:8px;">Salgueiro</td><td style="padding:8px; text-align:right;">${intSalgPct}% (${counts.Interno.SALGUEIRO})</td></tr>
-                        <tr style="background:#f8fafc; font-weight:bold;"><td style="padding:8px;">TOTAL</td><td style="padding:8px; text-align:right;">100% (${totalInt})</td></tr>
-                    </table>
+                    <h3 style="color:#059669;">Internos (${((totalInt / validBase) * 100).toFixed(1)}%)</h3>
+                    <p>Total: ${totalInt}</p>
                 </div>
             </div>
-
-            <div style="margin-top: 30px;">
-                 <h3 style="color:#64748b; font-size:16px; border-bottom:1px solid #ddd; padding-bottom:5px;">Municípios (Procedimentos Realizados)</h3>
-                 <table style="width: 100%; border: 1px solid #e2e8f0; font-size:13px;">
-                    <tr style="background:#f1f5f9;"><th style="padding:8px; text-align:left;">Município</th><th style="padding:8px; text-align:right;">Qtd</th></tr>
-                    <tr><td style="padding:8px; border-bottom:1px solid #eee;">Recife</td><td style="padding:8px; text-align:right;">${counts.Municipal.RECIFE}</td></tr>
-                    <tr><td style="padding:8px;">Jaboatão</td><td style="padding:8px; text-align:right;">${counts.Municipal.JABOATÃO}</td></tr>
-                 </table>
-            </div>
-
-            <div style="margin-top:40px; font-size:10px; color:#94a3b8; text-align:center; border-top:1px solid #eee; padding-top:10px;">
-                Documento gerado automaticamente pelo sistema GovCirúrgica em ${new Date().toLocaleString()}
+            <div style="margin-top:40px; font-size:10px; color:#94a3b8; text-align:center;">
+                Gerado em ${new Date().toLocaleString()}
             </div>
         </div>
     `;
 
-    const opt = {
-        margin: 10,
-        filename: `Relatorio_Gov_${monthVal}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-
+    const opt = { margin: 10, filename: `Relatorio_Gov_${monthVal}.pdf`, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
     setLoading(true);
-
-    if (typeof html2pdf === 'undefined') {
-        setLoading(false);
-        return showToast('Erro: Biblioteca PDF não carregada.', 'error');
-    }
-
-    html2pdf().set(opt).from(content).save().then(() => {
-        setLoading(false);
-        showToast('PDF baixado com sucesso!', 'success');
-    }).catch(err => {
-        setLoading(false);
-        console.error(err);
-        showToast('Erro ao gerar PDF.', 'error');
-    });
+    html2pdf().set(opt).from(content).save().then(() => setLoading(false));
 }
 
-// --- MODAIS GERAIS ---
-
 let messageCallback = null;
-
 function showMessageModal(title, message, type = 'success', onConfirm = null) {
     const modal = document.getElementById('message-modal');
     const iconEl = document.getElementById('msg-icon');
     const btns = document.getElementById('msg-actions');
-
     document.getElementById('msg-title').innerText = title;
     document.getElementById('msg-body').innerHTML = message;
     messageCallback = onConfirm;
-
-    btns.style.display = 'flex';
-    if (type === 'loading') btns.style.display = 'none';
+    btns.style.display = type === 'loading' ? 'none' : 'flex';
 
     const icons = {
-        'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
-        'warning': { color: '#d97706', bg: '#fef3c7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
-        'error': { color: '#dc2626', bg: '#fee2e2', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>` },
-        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>` },
+        'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
+        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>` },
         'loading': { color: '#0284c7', bg: '#f0f9ff', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>` }
     };
 
     const style = icons[type] || icons['success'];
-    iconEl.style.color = style.color;
-    iconEl.style.background = style.bg;
-    iconEl.innerHTML = style.svg;
+    iconEl.style.color = style.color; iconEl.style.background = style.bg; iconEl.innerHTML = style.svg;
 
     const btnConfirm = document.getElementById('msg-btn-confirm');
     const btnCancel = document.getElementById('msg-btn-cancel');
-
     if (type === 'confirm') {
         btnCancel.style.display = 'block';
         btnConfirm.innerText = 'Confirmar';
@@ -2120,84 +1740,52 @@ function showMessageModal(title, message, type = 'success', onConfirm = null) {
     } else {
         btnCancel.style.display = 'none';
         btnConfirm.innerText = 'OK';
-        btnConfirm.onclick = () => closeMessageModal();
+        btnConfirm.onclick = closeMessageModal;
     }
-
     modal.classList.add('open');
 }
 
-function closeMessageModal() {
-    document.getElementById('message-modal').classList.remove('open');
-    messageCallback = null;
-}
+function closeMessageModal() { document.getElementById('message-modal').classList.remove('open'); messageCallback = null; }
 
-// --- SISTEMA DE EXPORTAÇÃO MODAL ---
 function openExportModal() {
     const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-
-    // Sugere o mês atual por padrão
-    const firstDay = `${y}-${m}-01`;
-    const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
-    const lastDayStr = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
-
-    document.getElementById('export-start').value = firstDay;
-    document.getElementById('export-end').value = lastDayStr;
+    const y = today.getFullYear(), m = String(today.getMonth() + 1).padStart(2, '0');
+    document.getElementById('export-start').value = `${y}-${m}-01`;
+    document.getElementById('export-end').value = `${y}-${m}-${new Date(y, today.getMonth() + 1, 0).getDate()}`;
     document.getElementById('export-modal').classList.add('open');
 }
 
-function closeExportModal() {
-    document.getElementById('export-modal').classList.remove('open');
-}
+function closeExportModal() { document.getElementById('export-modal').classList.remove('open'); }
 
 async function executeExport() {
     let startDate = document.getElementById('export-start').value;
     let endDate = document.getElementById('export-end').value;
-
     if (!startDate || !endDate) return showToast('Selecione as datas.', 'warning');
-
-    if (startDate > endDate) {
-        const temp = startDate;
-        startDate = endDate;
-        endDate = temp;
-    }
+    if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
 
     const btn = document.querySelector('#export-modal .btn-primary');
     const originalText = btn.innerText;
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Gerando...`;
-    btn.disabled = true;
+    btn.innerHTML = `Gerando...`; btn.disabled = true;
 
     try {
-        // 1. Descobre todos os meses envolvidos no período e sincroniza
-        // Isso evita que o CSV venha vazio se você tentar baixar um mês que não clicou ainda
-        let startD = new Date(startDate + "T00:00:00");
-        let endD = new Date(endDate + "T00:00:00");
+        let startD = new Date(startDate + "T00:00:00"), endD = new Date(endDate + "T00:00:00");
         let monthsToFetch = [];
-
         let currentD = new Date(startD);
         while (currentD <= endD || (currentD.getMonth() === endD.getMonth() && currentD.getFullYear() === endD.getFullYear())) {
             let mKey = `${currentD.getFullYear()}-${String(currentD.getMonth() + 1).padStart(2, '0')}`;
             if (!monthsToFetch.includes(mKey)) monthsToFetch.push(mKey);
             currentD.setMonth(currentD.getMonth() + 1);
         }
+        for (const mKey of monthsToFetch) await syncMonthData(`${mKey}-01`);
 
-        for (const mKey of monthsToFetch) {
-            await syncMonthData(`${mKey}-01`);
-        }
-
-        // 2. Filtra os dados com base nos seletores da barra lateral
         const locFilter = document.getElementById('location-filter').value;
         const roomFilter = document.getElementById('room-filter').value;
         const specFilter = document.getElementById('specialty-filter') ? document.getElementById('specialty-filter').value : 'ALL';
 
         let slots = [];
         Object.keys(appointments).forEach(dateKey => {
-            if (dateKey >= startDate && dateKey <= endDate) {
-                slots = slots.concat(appointments[dateKey]);
-            }
+            if (dateKey >= startDate && dateKey <= endDate) slots = slots.concat(appointments[dateKey]);
         });
-
         slots = slots.filter(s => {
             if (String(s.status).toUpperCase() === 'EXCLUIDO') return false;
             if (locFilter !== 'ALL' && s.location !== locFilter) return false;
@@ -2206,63 +1794,32 @@ async function executeExport() {
             return true;
         });
 
-        if (slots.length === 0) {
-            showToast('Nenhuma vaga correspondente encontrada no período.', 'warning');
-            return;
-        }
+        if (slots.length === 0) return showToast('Nada encontrado.', 'warning');
+        slots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
-        // 3. Ordena os slots por data e hora
-        slots.sort((a, b) => {
-            if (a.date !== b.date) return a.date.localeCompare(b.date);
-            return a.time.localeCompare(b.time);
-        });
-
-        // 4. Monta e baixa o arquivo CSV
-        const headers = ["Data", "Hora", "Unidade", "Sala", "Tipo", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "CriadoPor"];
+        const headers = ["Data", "Hora", "Unidade", "Sala", "Tipo", "Status", "Paciente", "Prontuario", "Contrato", "Regulado", "Medico", "Procedimento", "AtualizadoPor"];
         const rows = slots.map(s => {
-            let procFormatted = s.procedure;
-            try {
-                if (s.procedure && (s.procedure.startsWith('[') || s.procedure.startsWith('{'))) {
-                    const parsed = JSON.parse(s.procedure);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        procFormatted = `${parsed[0].name} (${parsed[0].regulated ? 'Reg' : 'Int'})`;
-                    }
-                }
-            } catch (e) { console.warn("Erro formatação", e); }
-
-            return [
-                formatDateBR(s.date) || "?", s.time, s.location, s.room, s.specialty || '', s.status, s.patient, s.record, s.contract,
-                (s.regulated ? 'SIM' : 'NÃO'), s.doctor, procFormatted, s.updatedBy || s.createdBy
-            ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';');
+            let pName = s.procedure;
+            try { if (s.procedure.startsWith('[')) pName = JSON.parse(s.procedure)[0].name; } catch (e) { }
+            return [formatDateBR(s.date), s.time, s.location, s.room, s.specialty, s.status, s.patient, s.record, s.contract, s.regulated ? 'SIM' : 'NÃO', s.doctor, pName, s.updatedBy || s.createdBy]
+                .map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(';');
         });
 
-        const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const csv = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.href = url;
-        link.download = `Relatorio_${startDate}_a_${endDate}.csv`;
-        document.body.appendChild(link);
+        link.href = url; link.download = `Relatorio_${startDate}_${endDate}.csv`;
         link.click();
-        document.body.removeChild(link);
-
         closeExportModal();
-
-    } catch (err) {
-        console.error("Erro exportação:", err);
-        showToast('Erro ao exportar.', 'error');
-    } finally {
-        btn.innerText = originalText;
-        btn.disabled = false;
-    }
+    } catch (err) { showToast('Erro ao exportar.', 'error'); } finally { btn.innerText = originalText; btn.disabled = false; }
 }
 
-window.onclick = function (event) {
-    if (event.target === document.getElementById('login-modal')) closeLoginModal();
-    if (event.target === document.getElementById('booking-modal')) closeModal();
-    if (event.target === document.getElementById('message-modal')) closeMessageModal();
-    if (event.target === document.getElementById('export-modal')) closeExportModal(); // <- NOVA LINHA AQUI
+window.onclick = function (e) {
+    // A linha do login-modal foi removida para impedir que feche ao clicar fora
+    if (e.target === document.getElementById('booking-modal')) closeModal();
+    if (e.target === document.getElementById('message-modal')) closeMessageModal();
+    if (e.target === document.getElementById('export-modal')) closeExportModal();
 }
 
-// Inicia
 initData();
