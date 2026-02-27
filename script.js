@@ -1760,6 +1760,10 @@ function updateCharts(stats) {
         // ATUALIZAÇÃO SUAVE (Evita o gráfico piscar)
         chartLocInstance.data.labels = locLabels;
         chartLocInstance.data.datasets[0].data = locValues;
+
+        // CORRIGE O BUG DAS CORES REPETIDAS:
+        chartLocInstance.data.datasets[0].backgroundColor = locColors.slice(0, locLabels.length);
+
         chartLocInstance.update();
     } else {
         // CRIAÇÃO COM DESIGN PREMIUM
