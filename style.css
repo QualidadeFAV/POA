@@ -60,8 +60,8 @@ body {
 
 /* --- CUSTOM SCROLLBARS --- */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -69,12 +69,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
+    background: rgba(100, 116, 139, 0.3);
+    border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: rgba(100, 116, 139, 0.6);
 }
 
 /* --- LAYOUT GRID --- */
@@ -359,7 +359,7 @@ body {
 }
 
 .brand-title {
-    font-size: 1.4rem;
+    font-size: clamp(1.1rem, 1.5vw + 0.9rem, 1.4rem);
     font-weight: 800;
     color: #0f172a;
     line-height: 1.1;
@@ -403,7 +403,7 @@ body {
 }
 
 .elegant-title {
-    font-size: 1.5rem;
+    font-size: clamp(1.2rem, 2vw + 0.8rem, 1.5rem);
     font-weight: 800;
     background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
     -webkit-background-clip: text;
@@ -446,9 +446,13 @@ body {
     flex: 1;
     padding: 32px 40px;
     overflow-y: auto;
+    width: 100%;
+}
+
+/* O conteúdo interno fica com o limite de largura, enquanto o scrollbar fica encostado à tela */
+.dashboard-content>* {
     max-width: 1400px;
     margin: 0 auto;
-    width: 100%;
 }
 
 /* --- STATS & KPI --- */
@@ -506,7 +510,7 @@ body {
 }
 
 .gs-value {
-    font-size: 1.5rem;
+    font-size: clamp(1.25rem, 2vw + 1rem, 1.5rem);
     font-weight: 800;
     color: var(--text-main);
     line-height: 1;
@@ -549,7 +553,7 @@ body {
 }
 
 .kpi-value-big {
-    font-size: 2.5rem;
+    font-size: clamp(1.8rem, 3vw + 1rem, 2.5rem);
     font-weight: 700;
     color: var(--text-main);
     line-height: 1;
@@ -1096,4 +1100,340 @@ body {
     opacity: 1;
     visibility: visible;
     transform: translateX(-50%) translateY(-8px);
+    transform: translateX(-50%) translateY(-8px);
+}
+
+/* --- GRELHAS RESPONSIVAS INTELIGENTES (NOVO) --- */
+.charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+.form-grid-1-2 {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 16px;
+}
+
+.chart-card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.chart-wrapper {
+    position: relative;
+    width: 100%;
+    height: 280px;
+    flex-grow: 1;
+}
+
+/* =========================================================
+   RESPONSIVIDADE TOTAL (MOBILE & TABLET)
+========================================================= */
+
+/* Botão de Menu Escondido no PC */
+#mobile-menu-btn {
+    display: none;
+    background: transparent;
+    border: none;
+    color: var(--primary-dark);
+    cursor: pointer;
+    padding: 8px;
+    margin-right: 8px;
+    border-radius: 8px;
+}
+
+#mobile-menu-btn:hover {
+    background: var(--primary-light);
+}
+
+/* Overlay escuro que fica por trás da barra lateral no Mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.open {
+    display: block;
+    opacity: 1;
+}
+
+/* --- GRELHAS RESPONSIVAS INTELIGENTES (NOVO) --- */
+.charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+.form-grid-1-2 {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 16px;
+}
+
+.chart-card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.chart-wrapper {
+    position: relative;
+    width: 100%;
+    height: 280px;
+    flex-grow: 1;
+}
+
+/* --- TABLETS --- */
+@media (max-width: 1024px) {
+    .app-container {
+        grid-template-columns: 300px 1fr;
+    }
+
+    .kpi-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    #view-booking>div {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
+}
+
+/* --- CELULARES (SMARTPHONES) --- */
+@media (max-width: 768px) {
+
+    /* Troca o App de Grid para Empilhado */
+    .app-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+    }
+
+    /* Barra de Topo Flexível */
+    .top-bar {
+        padding: 16px;
+        height: auto;
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    .system-brand {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .brand-logo {
+        width: 36px;
+        height: 36px;
+    }
+
+    .brand-logo svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .brand-title {
+        font-size: 1.25rem;
+    }
+
+    /* Exibe o Botão Hambúrguer */
+    #mobile-menu-btn {
+        display: block;
+    }
+
+    /* Botões de Visualização de Tela Inteira */
+    .view-toggles {
+        width: 100%;
+    }
+
+    .view-toggles button {
+        flex: 1;
+        text-align: center;
+        padding: 12px;
+        font-size: 0.9rem;
+    }
+
+    /* A Mágica da Barra Lateral: Vira uma Gaveta (Off-Canvas) */
+    .listing-column {
+        position: fixed;
+        top: 0;
+        left: -100%;
+        width: 85%;
+        max-width: 340px;
+        height: 100%;
+        z-index: 1001;
+        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    }
+
+    .listing-column.open {
+        left: 0;
+    }
+
+    /* Ajuste da Área Central */
+    .dashboard-content {
+        padding: 16px;
+    }
+
+    .dash-header-actions {
+        width: 100%;
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch !important;
+    }
+
+    .dash-header-actions>div {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    /* Previne Zoom no Safari (iPhone) ao clicar em inputs */
+    .form-input,
+    .form-select {
+        font-size: 16px !important;
+    }
+
+    /* MODAIS: Tamanho máximo e Botões empilhados */
+    .modal-card {
+        width: 95vw !important;
+        max-width: 100% !important;
+        max-height: 90vh;
+        margin: auto;
+        border-radius: 12px;
+    }
+
+    .modal-body {
+        padding: 16px !important;
+    }
+
+    .modal-footer {
+        padding: 16px !important;
+        flex-direction: column-reverse;
+        gap: 8px !important;
+    }
+
+    .modal-footer button {
+        width: 100%;
+        margin: 0 !important;
+    }
+
+    .modal-footer>div#action-buttons-area {
+        width: 100%;
+        flex-direction: column;
+        gap: 8px !important;
+    }
+
+    .modal-footer>div#action-buttons-area button {
+        width: 100%;
+    }
+
+    /* Grids dos Modais e Páginas forçados a empilhar (1 coluna) */
+    .modal-body>div[style*="grid-template-columns"],
+    .manager-section>div[style*="grid-template-columns"],
+    .bulk-grid,
+    .charts-grid,
+    .form-grid-2,
+    .form-grid-3,
+    .form-grid-1-2 {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+    }
+
+    .bulk-grid button {
+        grid-column: span 1 !important;
+    }
+
+    .chart-wrapper {
+        height: 230px;
+    }
+
+    /* Ajusta a altura do gráfico no telemóvel */
+    .kpi-card {
+        padding: 16px;
+    }
+
+    /* Reduz o espaço vazio nas bordas dos cartões */
+
+    /* Indicadores */
+    .kpi-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .global-stats-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    /* Tabela de Gestão arrastável para o lado (Scroll-X) */
+    .table-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table {
+        min-width: 700px;
+    }
+
+    /* Impede que o texto esprema */
+
+    /* Headers das Secções Gestor */
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 12px;
+    }
+
+    #btn-delete-selected {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+
+    /* Pequenos ajustes para ecrãs muito pequenos */
+    .sub-stat {
+        flex: 1 1 100%;
+    }
 }

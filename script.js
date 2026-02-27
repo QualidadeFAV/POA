@@ -38,6 +38,26 @@ const CONTRACTS = {
     MUNICIPAL: ["RECIFE", "JABOATÃO"]
 };
 
+// --- FUNÇÃO DO MENU MOBILE (GAVETA) ---
+function toggleSidebar() {
+    const sidebar = document.querySelector('.listing-column');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+            overlay.classList.remove('open');
+        }, 300);
+    } else {
+        overlay.style.display = 'block';
+        void overlay.offsetWidth; // force reflow
+        overlay.style.opacity = '1';
+        overlay.classList.add('open');
+        sidebar.classList.add('open');
+    }
+}
+
 // Procedimentos por especialidade
 let SPECIALTY_PROCEDURES = {
     "CIRURGIA": [],
@@ -573,6 +593,12 @@ function executeSwitch(view) {
         renderAdminTable();
         sidebar.classList.add('locked');
     }
+
+    // Auto fecha gaveta no mobile
+    const sidebarElem = document.querySelector('.listing-column');
+    if (window.innerWidth <= 768 && sidebarElem.classList.contains('open')) {
+        toggleSidebar();
+    }
 }
 
 // Inicialização
@@ -780,6 +806,9 @@ function handleSlotClick(slot, key) {
     currentSlotId = slot.id;
     currentDateKey = key;
     renderSlotsList();
+
+    // Auto fecha gaveta no mobile ao clicar para facilitar ver o modal
+    if (window.innerWidth <= 768) toggleSidebar();
 
     if (currentView === 'booking') {
         if (slot.status === 'LIVRE') {
@@ -1558,14 +1587,14 @@ function updateCharts(stats) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                layout: { padding: 10 },
+                layout: { padding: { top: 10, bottom: 10 } },
                 plugins: {
                     legend: {
-                        position: 'right',
-                        labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", size: 12, weight: '500' } }
+                        position: 'bottom', // <-- ISTO SALVA O GRÁFICO NO MÓVEL
+                        labels: { usePointStyle: true, padding: 15, font: { family: "'Inter', sans-serif", size: 12, weight: '500' } }
                     }
                 },
-                cutout: '72%'
+                cutout: '68%'
             }
         });
     }
@@ -1591,11 +1620,11 @@ function updateCharts(stats) {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'top', labels: { usePointStyle: true, padding: 20, font: { family: "'Inter', sans-serif", weight: '500' } } }
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15, font: { family: "'Inter', sans-serif", weight: '500' } } }
                 },
                 scales: {
-                    x: { stacked: true, grid: { display: false }, ticks: { font: { family: "'Inter', sans-serif", weight: '600' } } },
-                    y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { stepSize: 1, font: { family: "'Inter', sans-serif" } } }
+                    x: { stacked: true, grid: { display: false }, ticks: { font: { family: "'Inter', sans-serif", weight: '600', size: 11 } } },
+                    y: { stacked: true, beginAtZero: true, grid: { color: '#e2e8f0', drawBorder: false }, ticks: { stepSize: 1, font: { family: "'Inter', sans-serif" } } }
                 }
             }
         });
@@ -1724,7 +1753,7 @@ function showMessageModal(title, message, type = 'success', onConfirm = null) {
 
     const icons = {
         'success': { color: '#16a34a', bg: '#dcfce7', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>` },
-        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>` },
+        'confirm': { color: '#0284c7', bg: '#e0f2fe', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>` },
         'loading': { color: '#0284c7', bg: '#f0f9ff', svg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>` }
     };
 
