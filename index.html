@@ -158,11 +158,12 @@
             <div class="dashboard-content" id="main-content">
 
                 <div id="section-stats">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
-                        <div style="font-size:0.9rem; font-weight:600; color:#64748b">Indicadores de Desempenho</div>
+                    <div class="dash-header-actions"
+                        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+                        <div style="font-size:1.1rem; font-weight:700; color:#1e293b">Indicadores de Desempenho</div>
 
-                        <div style="display:flex; gap:12px">
-                            <button onclick="generateDashboardPDF()" class="btn btn-ghost"
+                        <div class="dash-filters" style="display:flex; gap:12px">
+                            <button onclick="generateDashboardPDF()" class="btn btn-ghost btn-pdf-export"
                                 style="padding: 6px 12px; font-size: 0.8rem; border:1px solid #cbd5e1; background:white; color:#475569"
                                 title="Baixar PDF">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -174,13 +175,13 @@
                                 PDF
                             </button>
 
-                            <div
+                            <div class="period-filter-box"
                                 style="display:flex; align-items:center; gap:8px; background:white; padding:6px 12px; border-radius:8px; border:1px solid #cbd5e1; box-shadow:0 1px 2px rgba(0,0,0,0.05)">
                                 <span style="font-size:0.8rem; font-weight:600; color:#1e293b">Período:</span>
                                 <input type="date" id="dash-date-start"
                                     style="border:none; font-weight:600; color:#0284c7; outline:none; background:transparent; font-family:'Inter'"
                                     onchange="updateKPIs()">
-                                <span>até</span>
+                                <span style="font-size:0.8rem; color:#64748b">até</span>
                                 <input type="date" id="dash-date-end"
                                     style="border:none; font-weight:600; color:#0284c7; outline:none; background:transparent; font-family:'Inter'"
                                     onchange="updateKPIs()">
